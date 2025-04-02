@@ -38,6 +38,10 @@ type Options struct {
 	// TransformFunc allows transforming the fetched data before storing
 	// If nil, data is stored as-is
 	TransformFunc func(map[string]any) map[string]any
+
+	// OnUpdate is called when the map is updated with new data
+	// If nil, no notification is sent
+	OnUpdate func(map[string]any)
 }
 
 // RemoteMap extends sync.Map to synchronize with a remote JSON endpoint
@@ -70,6 +74,9 @@ func NewRemoteMap(url string, options *Options) *RemoteMap {
 		if options.TransformFunc != nil {
 			opts.TransformFunc = options.TransformFunc
 		}
+		if options.OnUpdate != nil {
+			opts.OnUpdate = options.OnUpdate
+		}
 	}
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -96,6 +103,7 @@ func getDefaultOptions() Options {
 		Headers:         make(map[string]string),
 		ErrorHandler:    nil,
 		TransformFunc:   nil,
+		OnUpdate:        nil,
 	}
 }
 
@@ -213,6 +221,11 @@ func (rm *RemoteMap) updateMap(data map[string]any) {
 	for key := range currentKeys {
 		rm.Delete(key)
 	}
+
+	// Call the OnUpdate callback if provided
+	if rm.options.OnUpdate != nil {
+		rm.options.OnUpdate(data)
+	}
 }
 
 // GetString retrieves a string value from the map
@@ -305,4 +318,62 @@ func (rm *RemoteMap) GetInt64(key string) (int64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// GetBoolMap retrieves a map of boolean values from the map
+func (rm *RemoteMap) GetBoolMap(key string) (map[string]bool, bool) {
+	value, ok := rm.Load(key)
+	if !ok {
+		return nil, false
+	}
+
+	// Check if it's already a map[string]bool
+	if boolMap, ok := value.(map[string]bool); ok {
+		return boolMap, true
+	}
+
+	// Check if it's a map[string]interface{} that can be converted
+	if anyMap, ok := value.(map[string]any); ok {
+		boolMap := make(map[string]bool)
+		for k, v := range anyMap {
+			if b, ok := v.(bool); ok {
+				boolMap[k] = b
+			} else {
+				// If any value is not a bool, return false
+				return nil, false
+			}
+		}
+		return boolMap, true
+	}
+
+	return nil, false
+}
+
+// GetStringMap retrieves a map of string values from the map
+func (rm *RemoteMap) GetStringMap(key string) (map[string]string, bool) {
+	value, ok := rm.Load(key)
+	if !ok {
+		return nil, false
+	}
+
+	// Check if it's already a map[string]string
+	if strMap, ok := value.(map[string]string); ok {
+		return strMap, true
+	}
+
+	// Check if it's a map[string]interface{} that can be converted
+	if anyMap, ok := value.(map[string]any); ok {
+		strMap := make(map[string]string)
+		for k, v := range anyMap {
+			if s, ok := v.(string); ok {
+				strMap[k] = s
+			} else {
+				// If any value is not a string, return false
+				return nil, false
+			}
+		}
+		return strMap, true
+	}
+
+	return nil, false
 }

@@ -440,3 +440,218 @@ func TestGetInt(t *testing.T) {
 		t.Errorf("Expected GetInt to fail with non-existent key, but it succeeded")
 	}
 }
+
+func TestGetBoolMap(t *testing.T) {
+	// Create a test server with different map types
+	testData := map[string]interface{}{
+		"bool_map": map[string]interface{}{
+			"key1": true,
+			"key2": false,
+			"key3": true,
+		},
+		"mixed_map": map[string]interface{}{
+			"key1": true,
+			"key2": "not a bool",
+		},
+		"string_value": "not a map",
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(testData)
+	}))
+	defer server.Close()
+
+	// Create a RemoteMap
+	options := &Options{
+		RefreshPeriod: 100 * time.Millisecond,
+	}
+	rm := NewRemoteMap(server.URL, options)
+
+	// Start the map and wait for the first refresh
+	rm.Start()
+	defer rm.Stop()
+
+	// Wait for initial fetch to complete
+	time.Sleep(200 * time.Millisecond)
+
+	// Test GetBoolMap with valid bool map
+	boolMap, ok := rm.GetBoolMap("bool_map")
+	if !ok {
+		t.Errorf("Expected GetBoolMap to succeed with bool_map, but it failed")
+	}
+	if len(boolMap) != 3 {
+		t.Errorf("Expected bool_map to have 3 entries, got %d", len(boolMap))
+	}
+	if !boolMap["key1"] {
+		t.Errorf("Expected bool_map[key1]=true, got false")
+	}
+	if boolMap["key2"] {
+		t.Errorf("Expected bool_map[key2]=false, got true")
+	}
+	if !boolMap["key3"] {
+		t.Errorf("Expected bool_map[key3]=true, got false")
+	}
+
+	// Test GetBoolMap with mixed map (contains non-bool values)
+	_, ok = rm.GetBoolMap("mixed_map")
+	if ok {
+		t.Errorf("Expected GetBoolMap to fail with mixed_map, but it succeeded")
+	}
+
+	// Test GetBoolMap with non-map value
+	_, ok = rm.GetBoolMap("string_value")
+	if ok {
+		t.Errorf("Expected GetBoolMap to fail with string value, but it succeeded")
+	}
+
+	// Test GetBoolMap with non-existent key
+	_, ok = rm.GetBoolMap("non_existent_key")
+	if ok {
+		t.Errorf("Expected GetBoolMap to fail with non-existent key, but it succeeded")
+	}
+}
+
+func TestGetStringMap(t *testing.T) {
+	// Create a test server with different map types
+	testData := map[string]interface{}{
+		"string_map": map[string]interface{}{
+			"key1": "value1",
+			"key2": "value2",
+			"key3": "value3",
+		},
+		"mixed_map": map[string]interface{}{
+			"key1": "value1",
+			"key2": 42,
+		},
+		"bool_value": true,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(testData)
+	}))
+	defer server.Close()
+
+	// Create a RemoteMap
+	options := &Options{
+		RefreshPeriod: 100 * time.Millisecond,
+	}
+	rm := NewRemoteMap(server.URL, options)
+
+	// Start the map and wait for the first refresh
+	rm.Start()
+	defer rm.Stop()
+
+	// Wait for initial fetch to complete
+	time.Sleep(200 * time.Millisecond)
+
+	// Test GetStringMap with valid string map
+	strMap, ok := rm.GetStringMap("string_map")
+	if !ok {
+		t.Errorf("Expected GetStringMap to succeed with string_map, but it failed")
+	}
+	if len(strMap) != 3 {
+		t.Errorf("Expected string_map to have 3 entries, got %d", len(strMap))
+	}
+	if strMap["key1"] != "value1" {
+		t.Errorf("Expected string_map[key1]=value1, got %s", strMap["key1"])
+	}
+	if strMap["key2"] != "value2" {
+		t.Errorf("Expected string_map[key2]=value2, got %s", strMap["key2"])
+	}
+	if strMap["key3"] != "value3" {
+		t.Errorf("Expected string_map[key3]=value3, got %s", strMap["key3"])
+	}
+
+	// Test GetStringMap with mixed map (contains non-string values)
+	_, ok = rm.GetStringMap("mixed_map")
+	if ok {
+		t.Errorf("Expected GetStringMap to fail with mixed_map, but it succeeded")
+	}
+
+	// Test GetStringMap with non-map value
+	_, ok = rm.GetStringMap("bool_value")
+	if ok {
+		t.Errorf("Expected GetStringMap to fail with bool value, but it succeeded")
+	}
+
+	// Test GetStringMap with non-existent key
+	_, ok = rm.GetStringMap("non_existent_key")
+	if ok {
+		t.Errorf("Expected GetStringMap to fail with non-existent key, but it succeeded")
+	}
+}
+
+func TestOnUpdate(t *testing.T) {
+	// Create a test server with changing data
+	var mu sync.Mutex
+	testData := map[string]interface{}{
+		"key1": "initial",
+		"key2": 100,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(testData)
+	}))
+	defer server.Close()
+
+	// Track if the OnUpdate callback was called
+	updateCalled := false
+	var updatedData map[string]any
+
+	// Create a RemoteMap with the OnUpdate callback
+	options := &Options{
+		RefreshPeriod: 100 * time.Millisecond,
+		Timeout:       5 * time.Second,
+		OnUpdate: func(data map[string]any) {
+			updateCalled = true
+			updatedData = data
+		},
+	}
+	rm := NewRemoteMap(server.URL, options)
+
+	// Start the map and wait for the first refresh
+	rm.Start()
+	defer rm.Stop()
+
+	// Wait for initial fetch to complete
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify OnUpdate was called with initial data
+	if !updateCalled {
+		t.Errorf("OnUpdate callback was not called for initial data")
+	}
+	if updatedData["key1"] != "initial" {
+		t.Errorf("Expected updatedData[key1]=initial, got %v", updatedData["key1"])
+	}
+
+	// Reset the flag and update the test data
+	updateCalled = false
+	mu.Lock()
+	testData = map[string]interface{}{
+		"key1": "updated",
+		"key3": "new",
+	}
+	mu.Unlock()
+
+	// Wait for the next refresh
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify OnUpdate was called with updated data
+	if !updateCalled {
+		t.Errorf("OnUpdate callback was not called for updated data")
+	}
+	if updatedData["key1"] != "updated" {
+		t.Errorf("Expected updatedData[key1]=updated, got %v", updatedData["key1"])
+	}
+	if updatedData["key3"] != "new" {
+		t.Errorf("Expected updatedData[key3]=new, got %v", updatedData["key3"])
+	}
+	if _, exists := updatedData["key2"]; exists {
+		t.Errorf("Expected key2 to be removed from updatedData, but it still exists")
+	}
+}
