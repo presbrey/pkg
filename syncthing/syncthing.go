@@ -19,7 +19,7 @@ const DefaultTimeout = 30 * time.Second
 
 // RemoteMap extends sync.Map to synchronize with a remote JSON endpoint
 // T is the type of values stored in the map
-type RemoteMap[T any] struct {
+type MapString[T any] struct {
 	sync.Map
 	url             string
 	refreshPeriod   time.Duration
@@ -36,8 +36,8 @@ type RemoteMap[T any] struct {
 }
 
 // NewMapString creates a new map[string]T that synchronizes with a remote JSON endpoint
-func NewMapString[T any](url string) *RemoteMap[T] {
-	rm := &RemoteMap[T]{
+func NewMapString[T any](url string) *MapString[T] {
+	rm := &MapString[T]{
 		url:             url,
 		refreshPeriod:   DefaultRefreshPeriod,
 		timeout:         DefaultTimeout,
@@ -52,7 +52,7 @@ func NewMapString[T any](url string) *RemoteMap[T] {
 }
 
 // initHTTPClient initializes the HTTP client with current settings
-func (rm *RemoteMap[T]) initHTTPClient() {
+func (rm *MapString[T]) initHTTPClient() {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: rm.ignoreTLSVerify}
 
@@ -63,7 +63,7 @@ func (rm *RemoteMap[T]) initHTTPClient() {
 }
 
 // WithRefreshPeriod sets the time between refreshes of the remote data
-func (rm *RemoteMap[T]) WithRefreshPeriod(period time.Duration) *RemoteMap[T] {
+func (rm *MapString[T]) WithRefreshPeriod(period time.Duration) *MapString[T] {
 	if period > 0 {
 		rm.refreshPeriod = period
 	}
@@ -71,7 +71,7 @@ func (rm *RemoteMap[T]) WithRefreshPeriod(period time.Duration) *RemoteMap[T] {
 }
 
 // WithTimeout sets the timeout for HTTP requests
-func (rm *RemoteMap[T]) WithTimeout(timeout time.Duration) *RemoteMap[T] {
+func (rm *MapString[T]) WithTimeout(timeout time.Duration) *MapString[T] {
 	if timeout > 0 {
 		rm.timeout = timeout
 		rm.initHTTPClient() // Reinitialize HTTP client with new timeout
@@ -80,50 +80,50 @@ func (rm *RemoteMap[T]) WithTimeout(timeout time.Duration) *RemoteMap[T] {
 }
 
 // WithIgnoreTLSVerify sets whether to disable TLS certificate verification
-func (rm *RemoteMap[T]) WithIgnoreTLSVerify(ignore bool) *RemoteMap[T] {
+func (rm *MapString[T]) WithIgnoreTLSVerify(ignore bool) *MapString[T] {
 	rm.ignoreTLSVerify = ignore
 	rm.initHTTPClient() // Reinitialize HTTP client with new TLS settings
 	return rm
 }
 
 // WithHeader adds an HTTP header to include in requests
-func (rm *RemoteMap[T]) WithHeader(key, value string) *RemoteMap[T] {
+func (rm *MapString[T]) WithHeader(key, value string) *MapString[T] {
 	rm.headers[key] = value
 	return rm
 }
 
 // WithHeaders sets all HTTP headers to include in requests
-func (rm *RemoteMap[T]) WithHeaders(headers map[string]string) *RemoteMap[T] {
+func (rm *MapString[T]) WithHeaders(headers map[string]string) *MapString[T] {
 	rm.headers = headers
 	return rm
 }
 
 // WithErrorHandler sets a function to be called when an error occurs during refresh
-func (rm *RemoteMap[T]) WithErrorHandler(handler func(error)) *RemoteMap[T] {
+func (rm *MapString[T]) WithErrorHandler(handler func(error)) *MapString[T] {
 	rm.errorHandler = handler
 	return rm
 }
 
 // WithUpdateCallback sets a function to be called when keys are updated in the map
-func (rm *RemoteMap[T]) WithUpdateCallback(callback func([]string)) *RemoteMap[T] {
+func (rm *MapString[T]) WithUpdateCallback(callback func([]string)) *MapString[T] {
 	rm.onUpdate = callback
 	return rm
 }
 
 // WithDeleteCallback sets a function to be called when keys are deleted from the map
-func (rm *RemoteMap[T]) WithDeleteCallback(callback func([]string)) *RemoteMap[T] {
+func (rm *MapString[T]) WithDeleteCallback(callback func([]string)) *MapString[T] {
 	rm.onDelete = callback
 	return rm
 }
 
 // WithRefreshCallback sets a function to be called after each refresh operation
-func (rm *RemoteMap[T]) WithRefreshCallback(callback func()) *RemoteMap[T] {
+func (rm *MapString[T]) WithRefreshCallback(callback func()) *MapString[T] {
 	rm.onRefresh = callback
 	return rm
 }
 
 // Start begins the periodic refresh of the map from the remote URL and returns the RemoteMap for chaining
-func (rm *RemoteMap[T]) Start() *RemoteMap[T] {
+func (rm *MapString[T]) Start() *MapString[T] {
 	// Immediately fetch data once
 	data, err := rm.fetchData()
 	if err != nil {
@@ -166,7 +166,7 @@ func (rm *RemoteMap[T]) Start() *RemoteMap[T] {
 }
 
 // Stop halts the periodic refresh of the map and returns the RemoteMap for chaining
-func (rm *RemoteMap[T]) Stop() *RemoteMap[T] {
+func (rm *MapString[T]) Stop() *MapString[T] {
 	if rm.cancel != nil {
 		rm.cancel()
 		rm.wg.Wait()
@@ -176,7 +176,7 @@ func (rm *RemoteMap[T]) Stop() *RemoteMap[T] {
 }
 
 // Refresh immediately updates the map from the remote URL and returns any error
-func (rm *RemoteMap[T]) Refresh() error {
+func (rm *MapString[T]) Refresh() error {
 	data, err := rm.fetchData()
 	if err != nil {
 		return err
@@ -204,7 +204,7 @@ func (rm *RemoteMap[T]) Refresh() error {
 }
 
 // fetchData retrieves the JSON data from the remote URL
-func (rm *RemoteMap[T]) fetchData() (map[string]T, error) {
+func (rm *MapString[T]) fetchData() (map[string]T, error) {
 	req, err := http.NewRequest(http.MethodGet, rm.url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -382,7 +382,7 @@ func (rm *RemoteMap[T]) fetchData() (map[string]T, error) {
 }
 
 // updateMap updates the internal sync.Map with the fetched data
-func (rm *RemoteMap[T]) updateMap(data map[string]T) ([]string, []string, []string) {
+func (rm *MapString[T]) updateMap(data map[string]T) ([]string, []string, []string) {
 	// Track existing keys to detect changed and deleted entries
 	existingKeys := make(map[string]bool)
 
@@ -424,7 +424,7 @@ func (rm *RemoteMap[T]) updateMap(data map[string]T) ([]string, []string, []stri
 }
 
 // Keys returns all keys in the map as a slice of strings
-func (rm *RemoteMap[T]) Keys() []string {
+func (rm *MapString[T]) Keys() []string {
 	var keys []string
 	rm.Range(func(key, value any) bool {
 		if k, ok := key.(string); ok {
@@ -436,7 +436,7 @@ func (rm *RemoteMap[T]) Keys() []string {
 }
 
 // Get retrieves a value from the map and attempts to convert it to type T
-func (rm *RemoteMap[T]) Get(key string) (T, bool) {
+func (rm *MapString[T]) Get(key string) (T, bool) {
 	value, ok := rm.Load(key)
 	if !ok {
 		var zero T
@@ -562,7 +562,7 @@ func (rm *RemoteMap[T]) Get(key string) (T, bool) {
 }
 
 // GetMap retrieves a nested map from the map
-func (rm *RemoteMap[T]) GetMap(key string) (map[string]any, bool) {
+func (rm *MapString[T]) GetMap(key string) (map[string]any, bool) {
 	value, ok := rm.Load(key)
 	if !ok {
 		return nil, false
@@ -587,7 +587,7 @@ func (rm *RemoteMap[T]) GetMap(key string) (map[string]any, bool) {
 }
 
 // GetWithDefault retrieves a value from the map and returns a default value if not found
-func (rm *RemoteMap[T]) GetWithDefault(key string, defaultValue T) T {
+func (rm *MapString[T]) GetWithDefault(key string, defaultValue T) T {
 	value, ok := rm.Get(key)
 	if !ok {
 		return defaultValue
