@@ -228,6 +228,18 @@ func (rm *RemoteMap) updateMap(data map[string]any) {
 	}
 }
 
+// Keys returns all keys in the map as a slice of strings
+func (rm *RemoteMap) Keys() []string {
+	var keys []string
+	rm.Range(func(key, value any) bool {
+		if k, ok := key.(string); ok {
+			keys = append(keys, k)
+		}
+		return true
+	})
+	return keys
+}
+
 // GetString retrieves a string value from the map
 func (rm *RemoteMap) GetString(key string) (string, bool) {
 	value, ok := rm.Load(key)
@@ -338,9 +350,6 @@ func (rm *RemoteMap) GetBoolMap(key string) (map[string]bool, bool) {
 		for k, v := range anyMap {
 			if b, ok := v.(bool); ok {
 				boolMap[k] = b
-			} else {
-				// If any value is not a bool, return false
-				return nil, false
 			}
 		}
 		return boolMap, true
@@ -367,12 +376,94 @@ func (rm *RemoteMap) GetStringMap(key string) (map[string]string, bool) {
 		for k, v := range anyMap {
 			if s, ok := v.(string); ok {
 				strMap[k] = s
-			} else {
-				// If any value is not a string, return false
-				return nil, false
 			}
 		}
 		return strMap, true
+	}
+
+	return nil, false
+}
+
+// GetStringSliceMap retrieves a map of string slice values from the map
+func (rm *RemoteMap) GetStringSliceMap(key string) (map[string][]string, bool) {
+	value, ok := rm.Load(key)
+	if !ok {
+		return nil, false
+	}
+
+	// Check if it's already a map[string][]string
+	if strSliceMap, ok := value.(map[string][]string); ok {
+		return strSliceMap, true
+	}
+
+	// Check if it's a map[string]interface{} that can be converted
+	if anyMap, ok := value.(map[string]any); ok {
+		strSliceMap := make(map[string][]string)
+		for k, v := range anyMap {
+			// Try to convert to []string directly
+			if strSlice, ok := v.([]string); ok {
+				strSliceMap[k] = strSlice
+				continue
+			}
+			
+			// Try to convert from []interface{} to []string
+			if anySlice, ok := v.([]interface{}); ok {
+				strSlice := make([]string, 0, len(anySlice))
+				allStrings := true
+				
+				for _, item := range anySlice {
+					if str, ok := item.(string); ok {
+						strSlice = append(strSlice, str)
+					} else {
+						allStrings = false
+						break
+					}
+				}
+				
+				if allStrings && len(strSlice) > 0 {
+					strSliceMap[k] = strSlice
+				}
+			}
+		}
+		
+		// Only return the map if we found at least one valid string slice
+		if len(strSliceMap) > 0 {
+			return strSliceMap, true
+		}
+	}
+
+	return nil, false
+}
+
+// GetStringSlice retrieves a slice of strings from the map
+func (rm *RemoteMap) GetStringSlice(key string) ([]string, bool) {
+	value, ok := rm.Load(key)
+	if !ok {
+		return nil, false
+	}
+
+	// Check if it's already a []string
+	if strSlice, ok := value.([]string); ok {
+		return strSlice, true
+	}
+
+	// Check if it's a []interface{} that can be converted to []string
+	if anySlice, ok := value.([]interface{}); ok {
+		strSlice := make([]string, 0, len(anySlice))
+		allStrings := true
+		
+		for _, item := range anySlice {
+			if str, ok := item.(string); ok {
+				strSlice = append(strSlice, str)
+			} else {
+				allStrings = false
+				break
+			}
+		}
+		
+		if allStrings {
+			return strSlice, true
+		}
 	}
 
 	return nil, false

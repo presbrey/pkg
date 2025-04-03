@@ -495,8 +495,8 @@ func TestGetBoolMap(t *testing.T) {
 
 	// Test GetBoolMap with mixed map (contains non-bool values)
 	_, ok = rm.GetBoolMap("mixed_map")
-	if ok {
-		t.Errorf("Expected GetBoolMap to fail with mixed_map, but it succeeded")
+	if !ok {
+		t.Errorf("Expected GetBoolMap to succeed with mixed_map, but it failed")
 	}
 
 	// Test GetBoolMap with non-map value
@@ -566,8 +566,8 @@ func TestGetStringMap(t *testing.T) {
 
 	// Test GetStringMap with mixed map (contains non-string values)
 	_, ok = rm.GetStringMap("mixed_map")
-	if ok {
-		t.Errorf("Expected GetStringMap to fail with mixed_map, but it succeeded")
+	if !ok {
+		t.Errorf("Expected GetStringMap to succeed with mixed_map, but it failed")
 	}
 
 	// Test GetStringMap with non-map value
@@ -653,5 +653,321 @@ func TestOnUpdate(t *testing.T) {
 	}
 	if _, exists := updatedData["key2"]; exists {
 		t.Errorf("Expected key2 to be removed from updatedData, but it still exists")
+	}
+}
+
+func TestKeys(t *testing.T) {
+	// Create a test server that returns a simple JSON map
+	testData := map[string]interface{}{
+		"key1": "value1",
+		"key2": 42,
+		"key3": true,
+		"key4": map[string]interface{}{
+			"nested": "value",
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(testData)
+	}))
+	defer server.Close()
+
+	// Create a RemoteMap with a short refresh period for testing
+	options := &Options{
+		RefreshPeriod: 100 * time.Millisecond,
+		Timeout:       5 * time.Second,
+	}
+	rm := NewRemoteMap(server.URL, options)
+
+	// Start the map and wait for the first refresh
+	rm.Start()
+	defer rm.Stop()
+
+	// Wait for initial fetch to complete
+	time.Sleep(200 * time.Millisecond)
+
+	// Test the Keys method
+	keys := rm.Keys()
+
+	// Check that we have the expected number of keys
+	if len(keys) != len(testData) {
+		t.Errorf("Expected %d keys, got %d", len(testData), len(keys))
+	}
+
+	// Check that all expected keys are present
+	keyMap := make(map[string]bool)
+	for _, k := range keys {
+		keyMap[k] = true
+	}
+
+	for k := range testData {
+		if !keyMap[k] {
+			t.Errorf("Expected key %s not found in result", k)
+		}
+	}
+
+	// Test with empty map
+	emptyMap := NewRemoteMap("http://example.com", nil)
+	emptyKeys := emptyMap.Keys()
+	if len(emptyKeys) != 0 {
+		t.Errorf("Expected empty keys slice for empty map, got %v", emptyKeys)
+	}
+}
+
+func TestGetStringSliceMap(t *testing.T) {
+	// Create a test server with various types of string slice maps
+	testData := map[string]interface{}{
+		"string_slice_map": map[string]interface{}{
+			"key1": []string{"value1", "value2", "value3"},
+			"key2": []string{"apple", "banana", "cherry"},
+		},
+		"interface_slice_map": map[string]interface{}{
+			"key1": []interface{}{"value1", "value2", "value3"},
+			"key2": []interface{}{"apple", "banana", "cherry"},
+		},
+		"mixed_slice_map": map[string]interface{}{
+			"key1": []interface{}{"value1", "value2", "value3"},
+			"key2": []interface{}{1, 2, 3}, // Non-string values
+			"key3": []interface{}{"apple", "banana", "cherry"},
+		},
+		"mixed_map": map[string]interface{}{
+			"key1": []interface{}{"value1", "value2", "value3"},
+			"key2": "not_a_slice",
+			"key3": 42,
+			"key4": []interface{}{"apple", "banana", "cherry"},
+		},
+		"empty_map": map[string]interface{}{},
+		"string_value": "not_a_map",
+		"int_value": 42,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(testData)
+	}))
+	defer server.Close()
+
+	// Create a RemoteMap with a short refresh period
+	options := &Options{
+		RefreshPeriod: 100 * time.Millisecond,
+	}
+	rm := NewRemoteMap(server.URL, options)
+
+	// Start the map and wait for the first refresh
+	rm.Start()
+	defer rm.Stop()
+
+	// Wait for initial fetch to complete
+	time.Sleep(200 * time.Millisecond)
+
+	// Test GetStringSliceMap with direct string slice map
+	stringSliceMap, ok := rm.GetStringSliceMap("string_slice_map")
+	if !ok {
+		t.Errorf("Expected to get string_slice_map, but failed")
+	} else {
+		// Verify the contents
+		if len(stringSliceMap) != 2 {
+			t.Errorf("Expected 2 entries in string_slice_map, got %d", len(stringSliceMap))
+		}
+		
+		// Check key1 slice
+		key1Slice, exists := stringSliceMap["key1"]
+		if !exists {
+			t.Errorf("Expected key1 in string_slice_map, but it was missing")
+		} else if len(key1Slice) != 3 {
+			t.Errorf("Expected 3 items in key1 slice, got %d", len(key1Slice))
+		} else if key1Slice[0] != "value1" || key1Slice[1] != "value2" || key1Slice[2] != "value3" {
+			t.Errorf("Expected key1 slice to be [value1, value2, value3], got %v", key1Slice)
+		}
+		
+		// Check key2 slice
+		key2Slice, exists := stringSliceMap["key2"]
+		if !exists {
+			t.Errorf("Expected key2 in string_slice_map, but it was missing")
+		} else if len(key2Slice) != 3 {
+			t.Errorf("Expected 3 items in key2 slice, got %d", len(key2Slice))
+		} else if key2Slice[0] != "apple" || key2Slice[1] != "banana" || key2Slice[2] != "cherry" {
+			t.Errorf("Expected key2 slice to be [apple, banana, cherry], got %v", key2Slice)
+		}
+	}
+
+	// Test GetStringSliceMap with interface slice map
+	interfaceSliceMap, ok := rm.GetStringSliceMap("interface_slice_map")
+	if !ok {
+		t.Errorf("Expected to get interface_slice_map, but failed")
+	} else {
+		// Verify the contents
+		if len(interfaceSliceMap) != 2 {
+			t.Errorf("Expected 2 entries in interface_slice_map, got %d", len(interfaceSliceMap))
+		}
+		
+		// Check key1 slice
+		key1Slice, exists := interfaceSliceMap["key1"]
+		if !exists {
+			t.Errorf("Expected key1 in interface_slice_map, but it was missing")
+		} else if len(key1Slice) != 3 {
+			t.Errorf("Expected 3 items in key1 slice, got %d", len(key1Slice))
+		} else if key1Slice[0] != "value1" || key1Slice[1] != "value2" || key1Slice[2] != "value3" {
+			t.Errorf("Expected key1 slice to be [value1, value2, value3], got %v", key1Slice)
+		}
+	}
+
+	// Test GetStringSliceMap with mixed slice map (some slices contain non-string values)
+	mixedSliceMap, ok := rm.GetStringSliceMap("mixed_slice_map")
+	if !ok {
+		t.Errorf("Expected to get mixed_slice_map, but failed")
+	} else {
+		// Verify the contents - should only include the string slices
+		if len(mixedSliceMap) != 2 {
+			t.Errorf("Expected 2 entries in mixed_slice_map, got %d", len(mixedSliceMap))
+		}
+		
+		// Check that key2 (non-string slice) is not included
+		_, exists := mixedSliceMap["key2"]
+		if exists {
+			t.Errorf("Expected key2 to be excluded from mixed_slice_map (non-string values)")
+		}
+	}
+
+	// Test GetStringSliceMap with mixed map (some values are not slices)
+	mixedMap, ok := rm.GetStringSliceMap("mixed_map")
+	if !ok {
+		t.Errorf("Expected to get mixed_map, but failed")
+	} else {
+		// Verify the contents - should only include the string slices
+		if len(mixedMap) != 2 {
+			t.Errorf("Expected 2 entries in mixed_map, got %d", len(mixedMap))
+		}
+		
+		// Check that non-slice keys are not included
+		_, exists := mixedMap["key2"]
+		if exists {
+			t.Errorf("Expected key2 to be excluded from mixed_map (not a slice)")
+		}
+		
+		_, exists = mixedMap["key3"]
+		if exists {
+			t.Errorf("Expected key3 to be excluded from mixed_map (not a slice)")
+		}
+	}
+
+	// Test GetStringSliceMap with empty map
+	_, ok = rm.GetStringSliceMap("empty_map")
+	if ok {
+		t.Errorf("Expected GetStringSliceMap to fail with empty_map, but it succeeded")
+	}
+
+	// Test GetStringSliceMap with non-map value
+	_, ok = rm.GetStringSliceMap("string_value")
+	if ok {
+		t.Errorf("Expected GetStringSliceMap to fail with string_value, but it succeeded")
+	}
+
+	// Test GetStringSliceMap with non-existent key
+	_, ok = rm.GetStringSliceMap("non_existent_key")
+	if ok {
+		t.Errorf("Expected GetStringSliceMap to fail with non_existent_key, but it succeeded")
+	}
+}
+
+func TestGetStringSlice(t *testing.T) {
+	// Create a test server with various types of string slices
+	testData := map[string]interface{}{
+		"direct_string_slice": []string{"value1", "value2", "value3"},
+		"interface_string_slice": []interface{}{"apple", "banana", "cherry"},
+		"mixed_slice": []interface{}{"value1", 42, "value3"},
+		"empty_slice": []interface{}{},
+		"empty_string_slice": []string{},
+		"string_value": "not_a_slice",
+		"int_value": 42,
+		"nested_map": map[string]interface{}{
+			"slice1": []string{"nested1", "nested2"},
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(testData)
+	}))
+	defer server.Close()
+
+	// Create a RemoteMap with a short refresh period
+	options := &Options{
+		RefreshPeriod: 100 * time.Millisecond,
+	}
+	rm := NewRemoteMap(server.URL, options)
+
+	// Start the map and wait for the first refresh
+	rm.Start()
+	defer rm.Stop()
+
+	// Wait for initial fetch to complete
+	time.Sleep(200 * time.Millisecond)
+
+	// Test GetStringSlice with direct string slice
+	directSlice, ok := rm.GetStringSlice("direct_string_slice")
+	if !ok {
+		t.Errorf("Expected to get direct_string_slice, but failed")
+	} else {
+		// Verify the contents
+		if len(directSlice) != 3 {
+			t.Errorf("Expected 3 items in direct_string_slice, got %d", len(directSlice))
+		} else if directSlice[0] != "value1" || directSlice[1] != "value2" || directSlice[2] != "value3" {
+			t.Errorf("Expected direct_string_slice to be [value1, value2, value3], got %v", directSlice)
+		}
+	}
+
+	// Test GetStringSlice with interface slice containing strings
+	interfaceSlice, ok := rm.GetStringSlice("interface_string_slice")
+	if !ok {
+		t.Errorf("Expected to get interface_string_slice, but failed")
+	} else {
+		// Verify the contents
+		if len(interfaceSlice) != 3 {
+			t.Errorf("Expected 3 items in interface_string_slice, got %d", len(interfaceSlice))
+		} else if interfaceSlice[0] != "apple" || interfaceSlice[1] != "banana" || interfaceSlice[2] != "cherry" {
+			t.Errorf("Expected interface_string_slice to be [apple, banana, cherry], got %v", interfaceSlice)
+		}
+	}
+
+	// Test GetStringSlice with mixed slice (contains non-string values)
+	_, ok = rm.GetStringSlice("mixed_slice")
+	if ok {
+		t.Errorf("Expected GetStringSlice to fail with mixed_slice, but it succeeded")
+	}
+
+	// Test GetStringSlice with empty slice
+	emptyInterfaceSlice, ok := rm.GetStringSlice("empty_slice")
+	if !ok {
+		t.Errorf("Expected to get empty_slice, but failed")
+	} else if len(emptyInterfaceSlice) != 0 {
+		t.Errorf("Expected empty_slice to be empty, got %v", emptyInterfaceSlice)
+	}
+
+	// Test GetStringSlice with empty string slice
+	emptySlice, ok := rm.GetStringSlice("empty_string_slice")
+	if !ok {
+		t.Errorf("Expected to get empty_string_slice, but failed")
+	} else if len(emptySlice) != 0 {
+		t.Errorf("Expected empty_string_slice to be empty, got %v", emptySlice)
+	}
+
+	// Test GetStringSlice with non-slice value
+	_, ok = rm.GetStringSlice("string_value")
+	if ok {
+		t.Errorf("Expected GetStringSlice to fail with string_value, but it succeeded")
+	}
+
+	// Test GetStringSlice with non-existent key
+	_, ok = rm.GetStringSlice("non_existent_key")
+	if ok {
+		t.Errorf("Expected GetStringSlice to fail with non_existent_key, but it succeeded")
+	}
+
+	// Test GetStringSlice with nested map
+	_, ok = rm.GetStringSlice("nested_map")
+	if ok {
+		t.Errorf("Expected GetStringSlice to fail with nested_map, but it succeeded")
 	}
 }
