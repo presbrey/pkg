@@ -89,7 +89,7 @@ func main() {
 		fmt.Printf("Active: %v (type: %T)\n", active, active)
 	}
 
-	// Create a typed map RemoteMap for settings
+	// Create a typed map MapString for settings
 	settingsMap := syncthing.NewMapString[map[string]bool]("http://localhost:8080/mixed-data").
 		WithRefreshPeriod(5 * time.Second).
 		Start()

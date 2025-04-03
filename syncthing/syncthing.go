@@ -17,7 +17,7 @@ const DefaultRefreshPeriod = 5 * time.Minute
 // DefaultTimeout is the default timeout for HTTP requests
 const DefaultTimeout = 30 * time.Second
 
-// RemoteMap extends sync.Map to synchronize with a remote JSON endpoint
+// MapString extends sync.Map to synchronize with a remote JSON endpoint
 // T is the type of values stored in the map
 type MapString[T any] struct {
 	sync.Map
@@ -122,7 +122,7 @@ func (rm *MapString[T]) WithRefreshCallback(callback func()) *MapString[T] {
 	return rm
 }
 
-// Start begins the periodic refresh of the map from the remote URL and returns the RemoteMap for chaining
+// Start begins the periodic refresh of the map from the remote URL and returns the MapString for chaining
 func (rm *MapString[T]) Start() *MapString[T] {
 	// Immediately fetch data once
 	data, err := rm.fetchData()
@@ -165,7 +165,7 @@ func (rm *MapString[T]) Start() *MapString[T] {
 	return rm
 }
 
-// Stop halts the periodic refresh of the map and returns the RemoteMap for chaining
+// Stop halts the periodic refresh of the map and returns the MapString for chaining
 func (rm *MapString[T]) Stop() *MapString[T] {
 	if rm.cancel != nil {
 		rm.cancel()

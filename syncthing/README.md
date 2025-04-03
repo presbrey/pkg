@@ -6,7 +6,7 @@ A generic Go package for synchronizing maps with remote JSON endpoints.
 
 `syncthing` is a Go package that extends the standard library's `sync.Map` to synchronize with remote JSON endpoints. It uses Go's generics feature to provide type-safe access to map values of any type.
 
-This package implements a Fluent Interface pattern, allowing for method chaining when configuring and using the `RemoteMap`.
+This package implements a Fluent Interface pattern, allowing for method chaining when configuring and using the `MapString`.
 
 ## Features
 
@@ -24,18 +24,9 @@ This package implements a Fluent Interface pattern, allowing for method chaining
 ### Basic Usage
 
 ```go
-package main
-
-import (
-	"fmt"
-	"log"
-	"time"
-
-	"github.com/presbrey/pkg/syncthing"
-)
 
 func main() {
-	// Create a new RemoteMap with string values using the Fluent Interface
+	// Create a new MapString with string values using the Fluent Interface
 	rm := syncthing.NewMapString[string]("https://api.example.com/data").
 		WithRefreshPeriod(1 * time.Minute).
 		WithTimeout(10 * time.Second).
@@ -157,17 +148,17 @@ fmt.Println("All keys:", keys)
 
 ## Configuration Options
 
-The `RemoteMap` can be configured using the following chainable methods:
+The `MapString` can be configured using the following chainable methods:
 
-- `WithRefreshPeriod(period time.Duration)`: Set the time between refreshes (default: 5 minutes)
-- `WithTimeout(timeout time.Duration)`: Set the HTTP request timeout (default: 30 seconds)
-- `WithIgnoreTLSVerify(ignore bool)`: Disable TLS certificate verification
+- `WithDeleteCallback(callback func([]string))`: Set a function to be called when keys are deleted
+- `WithErrorHandler(handler func(error))`: Set a function to be called when an error occurs
 - `WithHeader(key, value string)`: Add a single HTTP header
 - `WithHeaders(headers map[string]string)`: Set multiple HTTP headers
-- `WithErrorHandler(handler func(error))`: Set a function to be called when an error occurs
-- `WithUpdateCallback(callback func([]string))`: Set a function to be called when keys are updated
-- `WithDeleteCallback(callback func([]string))`: Set a function to be called when keys are deleted
+- `WithIgnoreTLSVerify(ignore bool)`: Disable TLS certificate verification
 - `WithRefreshCallback(callback func())`: Set a function to be called after each refresh operation, regardless of changes
+- `WithRefreshPeriod(period time.Duration)`: Set the time between refreshes (default: 5 minutes)
+- `WithTimeout(timeout time.Duration)`: Set the HTTP request timeout (default: 30 seconds)
+- `WithUpdateCallback(callback func([]string))`: Set a function to be called when keys are updated
 
 ## Type Conversions
 
