@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"sync"
 	"time"
 )
@@ -17,101 +18,122 @@ const DefaultRefreshPeriod = 5 * time.Minute
 // DefaultTimeout is the default timeout for HTTP requests
 const DefaultTimeout = 30 * time.Second
 
-// Options contains configuration options for RemoteMap
-type Options struct {
-	// RefreshPeriod is the time between refreshes of the remote data
-	RefreshPeriod time.Duration
-
-	// Timeout is the timeout for HTTP requests
-	Timeout time.Duration
-
-	// IgnoreTLSVerify disables TLS certificate verification when true
-	IgnoreTLSVerify bool
-
-	// Headers are additional HTTP headers to include in requests
-	Headers map[string]string
-
-	// ErrorHandler is called when an error occurs during refresh
-	// If nil, errors are ignored
-	ErrorHandler func(error)
-
-	// TransformFunc allows transforming the fetched data before storing
-	// If nil, data is stored as-is
-	TransformFunc func(map[string]any) map[string]any
-
-	// OnUpdate is called when the map is updated with new data
-	// If nil, no notification is sent
-	OnUpdate func(map[string]any)
-}
-
 // RemoteMap extends sync.Map to synchronize with a remote JSON endpoint
 type RemoteMap struct {
 	sync.Map
-	url        string
-	options    Options
-	httpClient *http.Client
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
+	url             string
+	refreshPeriod   time.Duration
+	timeout         time.Duration
+	ignoreTLSVerify bool
+	headers         map[string]string
+	errorHandler    func(error)
+	updateCallback  func([]string)
+	deleteCallback  func([]string)
+	refreshCallback func()
+	transformFunc   func(map[string]interface{}) map[string]interface{}
+	httpClient      *http.Client
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
 }
 
 // NewRemoteMap creates a new RemoteMap that synchronizes with the provided URL
-func NewRemoteMap(url string, options *Options) *RemoteMap {
-	opts := getDefaultOptions()
-	if options != nil {
-		if options.RefreshPeriod > 0 {
-			opts.RefreshPeriod = options.RefreshPeriod
-		}
-		if options.Timeout > 0 {
-			opts.Timeout = options.Timeout
-		}
-		opts.IgnoreTLSVerify = options.IgnoreTLSVerify
-		if options.Headers != nil {
-			opts.Headers = options.Headers
-		}
-		if options.ErrorHandler != nil {
-			opts.ErrorHandler = options.ErrorHandler
-		}
-		if options.TransformFunc != nil {
-			opts.TransformFunc = options.TransformFunc
-		}
-		if options.OnUpdate != nil {
-			opts.OnUpdate = options.OnUpdate
-		}
+func NewRemoteMap(url string) *RemoteMap {
+	rm := &RemoteMap{
+		url:             url,
+		refreshPeriod:   DefaultRefreshPeriod,
+		timeout:         DefaultTimeout,
+		ignoreTLSVerify: false,
+		headers:         make(map[string]string),
 	}
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: opts.IgnoreTLSVerify}
+	// Initialize HTTP client with default settings
+	rm.initHTTPClient()
 
-	client := &http.Client{
-		Timeout:   opts.Timeout,
+	return rm
+}
+
+// initHTTPClient initializes the HTTP client with current settings
+func (rm *RemoteMap) initHTTPClient() {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: rm.ignoreTLSVerify}
+
+	rm.httpClient = &http.Client{
+		Timeout:   rm.timeout,
 		Transport: transport,
 	}
-
-	return &RemoteMap{
-		url:        url,
-		options:    opts,
-		httpClient: client,
-	}
 }
 
-// getDefaultOptions returns the default options
-func getDefaultOptions() Options {
-	return Options{
-		RefreshPeriod:   DefaultRefreshPeriod,
-		Timeout:         DefaultTimeout,
-		IgnoreTLSVerify: false,
-		Headers:         make(map[string]string),
-		ErrorHandler:    nil,
-		TransformFunc:   nil,
-		OnUpdate:        nil,
+// WithRefreshPeriod sets the time between refreshes of the remote data
+func (rm *RemoteMap) WithRefreshPeriod(period time.Duration) *RemoteMap {
+	if period > 0 {
+		rm.refreshPeriod = period
 	}
+	return rm
 }
 
-// Start begins the periodic refresh of the map from the remote URL
-func (rm *RemoteMap) Start() {
+// WithTimeout sets the timeout for HTTP requests
+func (rm *RemoteMap) WithTimeout(timeout time.Duration) *RemoteMap {
+	if timeout > 0 {
+		rm.timeout = timeout
+		rm.initHTTPClient() // Reinitialize HTTP client with new timeout
+	}
+	return rm
+}
+
+// WithIgnoreTLSVerify sets whether to disable TLS certificate verification
+func (rm *RemoteMap) WithIgnoreTLSVerify(ignore bool) *RemoteMap {
+	rm.ignoreTLSVerify = ignore
+	rm.initHTTPClient() // Reinitialize HTTP client with new TLS settings
+	return rm
+}
+
+// WithHeader adds an HTTP header to include in requests
+func (rm *RemoteMap) WithHeader(key, value string) *RemoteMap {
+	rm.headers[key] = value
+	return rm
+}
+
+// WithHeaders sets all HTTP headers to include in requests
+func (rm *RemoteMap) WithHeaders(headers map[string]string) *RemoteMap {
+	rm.headers = headers
+	return rm
+}
+
+// WithErrorHandler sets a function to be called when an error occurs during refresh
+func (rm *RemoteMap) WithErrorHandler(handler func(error)) *RemoteMap {
+	rm.errorHandler = handler
+	return rm
+}
+
+// WithUpdateCallback sets a function to be called when keys are updated in the map
+func (rm *RemoteMap) WithUpdateCallback(callback func([]string)) *RemoteMap {
+	rm.updateCallback = callback
+	return rm
+}
+
+// WithDeleteCallback sets a function to be called when keys are deleted from the map
+func (rm *RemoteMap) WithDeleteCallback(callback func([]string)) *RemoteMap {
+	rm.deleteCallback = callback
+	return rm
+}
+
+// WithRefreshCallback sets a function to be called after each refresh operation
+func (rm *RemoteMap) WithRefreshCallback(callback func()) *RemoteMap {
+	rm.refreshCallback = callback
+	return rm
+}
+
+// WithTransformFunc sets a function to transform the fetched data before storing
+func (rm *RemoteMap) WithTransformFunc(transform func(map[string]interface{}) map[string]interface{}) *RemoteMap {
+	rm.transformFunc = transform
+	return rm
+}
+
+// Start begins the periodic refresh of the map from the remote URL and returns the RemoteMap for chaining
+func (rm *RemoteMap) Start() *RemoteMap {
 	// Immediately fetch data once
-	if err := rm.Refresh(); err != nil && rm.options.ErrorHandler != nil {
-		rm.options.ErrorHandler(err)
+	if err := rm.Refresh(); err != nil && rm.errorHandler != nil {
+		rm.errorHandler(err)
 	}
 
 	// Set up periodic refresh
@@ -121,32 +143,35 @@ func (rm *RemoteMap) Start() {
 	rm.wg.Add(1)
 	go func() {
 		defer rm.wg.Done()
-		ticker := time.NewTicker(rm.options.RefreshPeriod)
+		ticker := time.NewTicker(rm.refreshPeriod)
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-ticker.C:
-				if err := rm.Refresh(); err != nil && rm.options.ErrorHandler != nil {
-					rm.options.ErrorHandler(err)
+				if err := rm.Refresh(); err != nil && rm.errorHandler != nil {
+					rm.errorHandler(err)
 				}
 			case <-ctx.Done():
 				return
 			}
 		}
 	}()
+
+	return rm
 }
 
-// Stop halts the periodic refresh of the map
-func (rm *RemoteMap) Stop() {
+// Stop halts the periodic refresh of the map and returns the RemoteMap for chaining
+func (rm *RemoteMap) Stop() *RemoteMap {
 	if rm.cancel != nil {
 		rm.cancel()
 		rm.wg.Wait()
 		rm.cancel = nil
 	}
+	return rm
 }
 
-// Refresh immediately updates the map from the remote URL
+// Refresh immediately updates the map from the remote URL and returns any error
 func (rm *RemoteMap) Refresh() error {
 	data, err := rm.fetchData()
 	if err != nil {
@@ -154,24 +179,43 @@ func (rm *RemoteMap) Refresh() error {
 	}
 
 	// Apply transform function if provided
-	if rm.options.TransformFunc != nil {
-		data = rm.options.TransformFunc(data)
+	if rm.transformFunc != nil {
+		data = rm.transformFunc(data)
 	}
 
-	// Update the map with the new data
-	rm.updateMap(data)
+	// Update the map with the new data and track changes
+	_, updated, deleted := rm.updateMap(data)
+
+	// Call the update callback if set and if there are changes
+	if rm.updateCallback != nil && len(updated) > 0 {
+		rm.updateCallback(updated)
+	}
+
+	// Call the delete callback if set and if there are deletions
+	if rm.deleteCallback != nil && len(deleted) > 0 {
+		rm.deleteCallback(deleted)
+	}
+
+	// Call the refresh callback if set
+	if rm.refreshCallback != nil {
+		rm.refreshCallback()
+	}
+
 	return nil
 }
 
 // fetchData retrieves the JSON data from the remote URL
-func (rm *RemoteMap) fetchData() (map[string]any, error) {
-	req, err := http.NewRequest(http.MethodGet, rm.url, nil)
+func (rm *RemoteMap) fetchData() (map[string]interface{}, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), rm.timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rm.url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Add headers
-	for key, value := range rm.options.Headers {
+	for key, value := range rm.headers {
 		req.Header.Add(key, value)
 	}
 
@@ -190,7 +234,7 @@ func (rm *RemoteMap) fetchData() (map[string]any, error) {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	var data map[string]any
+	var data map[string]interface{}
 	if err := json.Unmarshal(body, &data); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
 	}
@@ -199,39 +243,56 @@ func (rm *RemoteMap) fetchData() (map[string]any, error) {
 }
 
 // updateMap updates the internal sync.Map with the fetched data
-func (rm *RemoteMap) updateMap(data map[string]any) {
-	// Track keys to detect deleted entries
-	currentKeys := make(map[string]bool)
+// Returns slices of added, updated, and deleted keys
+func (rm *RemoteMap) updateMap(data map[string]interface{}) ([]string, []string, []string) {
+	// Track existing keys and their values to detect changed and deleted entries
+	existingKeys := make(map[string]interface{})
 
-	// First, collect all current keys
-	rm.Range(func(key, value any) bool {
+	// First, collect all existing keys and values
+	rm.Range(func(key, value interface{}) bool {
 		if k, ok := key.(string); ok {
-			currentKeys[k] = true
+			existingKeys[k] = value
 		}
 		return true
 	})
 
-	// Update with new data
+	// Track added, changed, and deleted keys
+	added := make([]string, 0)
+	updated := make([]string, 0)
+
+	// Process new data
 	for key, value := range data {
+		if oldValue, exists := existingKeys[key]; !exists {
+			// This is a new key
+			added = append(added, key)
+		} else {
+			// This key already exists, check if value has changed
+			// Simple equality check might not work for complex types
+			// For maps and slices, we need to do a deep comparison
+			if !reflect.DeepEqual(oldValue, value) {
+				updated = append(updated, key)
+			}
+			// Mark as processed
+			delete(existingKeys, key)
+		}
+		// Store the value
 		rm.Store(key, value)
-		delete(currentKeys, key)
 	}
 
-	// Remove keys that no longer exist in the remote data
-	for key := range currentKeys {
+	// Any keys left in existingKeys are no longer in the data (deleted)
+	deleted := make([]string, 0, len(existingKeys))
+	for key := range existingKeys {
+		deleted = append(deleted, key)
 		rm.Delete(key)
 	}
 
-	// Call the OnUpdate callback if provided
-	if rm.options.OnUpdate != nil {
-		rm.options.OnUpdate(data)
-	}
+	return added, updated, deleted
 }
 
 // Keys returns all keys in the map as a slice of strings
 func (rm *RemoteMap) Keys() []string {
 	var keys []string
-	rm.Range(func(key, value any) bool {
+	rm.Range(func(key, value interface{}) bool {
 		if k, ok := key.(string); ok {
 			keys = append(keys, k)
 		}
@@ -240,35 +301,77 @@ func (rm *RemoteMap) Keys() []string {
 	return keys
 }
 
-// GetString retrieves a string value from the map
-func (rm *RemoteMap) GetString(key string) (string, bool) {
-	value, ok := rm.Load(key)
+// Load retrieves a value from the map
+// This is an override of sync.Map's Load method to handle type conversions
+func (rm *RemoteMap) Load(key interface{}) (interface{}, bool) {
+	value, ok := rm.Map.Load(key)
 	if !ok {
-		return "", false
+		return nil, false
 	}
-
-	str, ok := value.(string)
-	return str, ok
+	return value, true
 }
 
-// GetInt retrieves an int value from the map
-func (rm *RemoteMap) GetInt(key string) (int, bool) {
-	value, ok := rm.Load(key)
-	if !ok {
-		return 0, false
+// LoadOrStore loads the value for a key or stores the default value if it doesn't exist
+// Returns the actual value and a boolean indicating whether the value was loaded
+func (rm *RemoteMap) LoadOrStore(key string, defaultValue interface{}) (interface{}, bool) {
+	// First try to load the value
+	if value, ok := rm.Load(key); ok {
+		// If the types match, return the loaded value
+		if reflect.TypeOf(value) == reflect.TypeOf(defaultValue) {
+			return value, true
+		}
+		
+		// Handle type conversions based on the default value type
+		switch defaultValue.(type) {
+		case string:
+			if strVal, ok := value.(string); ok {
+				return strVal, true
+			}
+		case int:
+			if floatVal, ok := value.(float64); ok {
+				if float64(int(floatVal)) == floatVal {
+					return int(floatVal), true
+				}
+			}
+		case int64:
+			if floatVal, ok := value.(float64); ok {
+				if float64(int64(floatVal)) == floatVal {
+					return int64(floatVal), true
+				}
+			}
+		case float64:
+			if floatVal, ok := value.(float64); ok {
+				return floatVal, true
+			}
+		case bool:
+			if boolVal, ok := value.(bool); ok {
+				return boolVal, true
+			}
+		case []string:
+			if strSlice, ok := getStringSlice(value); ok {
+				return strSlice, true
+			}
+		case map[string]string:
+			if strMap, ok := getStringMap(value); ok {
+				return strMap, true
+			}
+		case map[string]bool:
+			if boolMap, ok := getBoolMap(value); ok {
+				return boolMap, true
+			}
+		case map[string][]string:
+			if strSliceMap, ok := getStringSliceMap(value); ok {
+				return strSliceMap, true
+			}
+		}
+		
+		// If we get here, the type conversion failed
+		return defaultValue, false
 	}
 
-	// Handle different numeric types in JSON
-	switch v := value.(type) {
-	case int:
-		return v, true
-	case float64:
-		return int(v), true
-	case int64:
-		return int(v), true
-	default:
-		return 0, false
-	}
+	// Store the default value
+	rm.Store(key, defaultValue)
+	return defaultValue, false
 }
 
 // GetFloat retrieves a float64 value from the map
@@ -278,6 +381,7 @@ func (rm *RemoteMap) GetFloat(key string) (float64, bool) {
 		return 0, false
 	}
 
+	// Try to convert to float64
 	switch v := value.(type) {
 	case float64:
 		return v, true
@@ -285,9 +389,37 @@ func (rm *RemoteMap) GetFloat(key string) (float64, bool) {
 		return float64(v), true
 	case int64:
 		return float64(v), true
-	default:
+	}
+
+	// If we get here, the value is not a number
+	return 0, false
+}
+
+// GetInt retrieves an int value from the map
+func (rm *RemoteMap) GetInt(key string) (int, bool) {
+	value, ok := rm.Load(key)
+	if !ok {
 		return 0, false
 	}
+
+	// Try to convert to int
+	switch v := value.(type) {
+	case int:
+		return v, true
+	case float64:
+		// JSON numbers are decoded as float64, so we need to check if it's a whole number
+		if float64(int(v)) == v {
+			return int(v), true
+		}
+	case int64:
+		// Check if the int64 value can fit in an int without overflow
+		if int64(int(v)) == v {
+			return int(v), true
+		}
+	}
+
+	// If we get here, the value is not a valid int
+	return 0, false
 }
 
 // GetBool retrieves a bool value from the map
@@ -296,19 +428,19 @@ func (rm *RemoteMap) GetBool(key string) (bool, bool) {
 	if !ok {
 		return false, false
 	}
-
+	
 	b, ok := value.(bool)
 	return b, ok
 }
 
 // GetMap retrieves a nested map from the map
-func (rm *RemoteMap) GetMap(key string) (map[string]any, bool) {
+func (rm *RemoteMap) GetMap(key string) (map[string]interface{}, bool) {
 	value, ok := rm.Load(key)
 	if !ok {
 		return nil, false
 	}
-
-	m, ok := value.(map[string]any)
+	
+	m, ok := value.(map[string]interface{})
 	return m, ok
 }
 
@@ -319,7 +451,6 @@ func (rm *RemoteMap) GetInt64(key string) (int64, bool) {
 		return 0, false
 	}
 
-	// Handle different numeric types in JSON
 	switch v := value.(type) {
 	case int64:
 		return v, true
@@ -327,112 +458,80 @@ func (rm *RemoteMap) GetInt64(key string) (int64, bool) {
 		return int64(v), true
 	case float64:
 		return int64(v), true
+	case json.Number:
+		i, err := v.Int64()
+		if err != nil {
+			return 0, false
+		}
+		return i, true
 	default:
 		return 0, false
 	}
 }
 
-// GetBoolMap retrieves a map of boolean values from the map
-func (rm *RemoteMap) GetBoolMap(key string) (map[string]bool, bool) {
+// GetString retrieves a string value from the map
+func (rm *RemoteMap) GetString(key string) (string, bool) {
 	value, ok := rm.Load(key)
 	if !ok {
-		return nil, false
+		return "", false
 	}
-
-	// Check if it's already a map[string]bool
-	if boolMap, ok := value.(map[string]bool); ok {
-		return boolMap, true
-	}
-
-	// Check if it's a map[string]interface{} that can be converted
-	if anyMap, ok := value.(map[string]any); ok {
-		boolMap := make(map[string]bool)
-		for k, v := range anyMap {
-			if b, ok := v.(bool); ok {
-				boolMap[k] = b
-			}
-		}
-		return boolMap, true
-	}
-
-	return nil, false
+	
+	str, ok := value.(string)
+	return str, ok
 }
 
-// GetStringMap retrieves a map of string values from the map
-func (rm *RemoteMap) GetStringMap(key string) (map[string]string, bool) {
-	value, ok := rm.Load(key)
+// GetStringWithDefault retrieves a string value from the map or returns a default value if not found
+func (rm *RemoteMap) GetStringWithDefault(key string, defaultValue string) string {
+	value, ok := rm.GetString(key)
 	if !ok {
-		return nil, false
+		return defaultValue
 	}
-
-	// Check if it's already a map[string]string
-	if strMap, ok := value.(map[string]string); ok {
-		return strMap, true
-	}
-
-	// Check if it's a map[string]interface{} that can be converted
-	if anyMap, ok := value.(map[string]any); ok {
-		strMap := make(map[string]string)
-		for k, v := range anyMap {
-			if s, ok := v.(string); ok {
-				strMap[k] = s
-			}
-		}
-		return strMap, true
-	}
-
-	return nil, false
+	return value
 }
 
-// GetStringSliceMap retrieves a map of string slice values from the map
-func (rm *RemoteMap) GetStringSliceMap(key string) (map[string][]string, bool) {
-	value, ok := rm.Load(key)
+// GetIntWithDefault retrieves an int value from the map or returns a default value if not found
+func (rm *RemoteMap) GetIntWithDefault(key string, defaultValue int) int {
+	value, ok := rm.GetInt(key)
 	if !ok {
-		return nil, false
+		return defaultValue
 	}
+	return value
+}
 
-	// Check if it's already a map[string][]string
-	if strSliceMap, ok := value.(map[string][]string); ok {
-		return strSliceMap, true
+// GetFloatWithDefault retrieves a float64 value from the map or returns a default value if not found
+func (rm *RemoteMap) GetFloatWithDefault(key string, defaultValue float64) float64 {
+	value, ok := rm.GetFloat(key)
+	if !ok {
+		return defaultValue
 	}
+	return value
+}
 
-	// Check if it's a map[string]interface{} that can be converted
-	if anyMap, ok := value.(map[string]any); ok {
-		strSliceMap := make(map[string][]string)
-		for k, v := range anyMap {
-			// Try to convert to []string directly
-			if strSlice, ok := v.([]string); ok {
-				strSliceMap[k] = strSlice
-				continue
-			}
-			
-			// Try to convert from []interface{} to []string
-			if anySlice, ok := v.([]interface{}); ok {
-				strSlice := make([]string, 0, len(anySlice))
-				allStrings := true
-				
-				for _, item := range anySlice {
-					if str, ok := item.(string); ok {
-						strSlice = append(strSlice, str)
-					} else {
-						allStrings = false
-						break
-					}
-				}
-				
-				if allStrings && len(strSlice) > 0 {
-					strSliceMap[k] = strSlice
-				}
-			}
-		}
-		
-		// Only return the map if we found at least one valid string slice
-		if len(strSliceMap) > 0 {
-			return strSliceMap, true
-		}
+// GetBoolWithDefault retrieves a bool value from the map or returns a default value if not found
+func (rm *RemoteMap) GetBoolWithDefault(key string, defaultValue bool) bool {
+	value, ok := rm.GetBool(key)
+	if !ok {
+		return defaultValue
 	}
+	return value
+}
 
-	return nil, false
+// GetMapWithDefault retrieves a nested map from the map or returns a default value if not found
+func (rm *RemoteMap) GetMapWithDefault(key string, defaultValue map[string]interface{}) map[string]interface{} {
+	value, ok := rm.GetMap(key)
+	if !ok {
+		return defaultValue
+	}
+	return value
+}
+
+// GetInt64WithDefault retrieves an int64 value from the map or returns a default value if not found
+func (rm *RemoteMap) GetInt64WithDefault(key string, defaultValue int64) int64 {
+	value, ok := rm.GetInt64(key)
+	if !ok {
+		return defaultValue
+	}
+	return value
 }
 
 // GetStringSlice retrieves a slice of strings from the map
@@ -441,30 +540,159 @@ func (rm *RemoteMap) GetStringSlice(key string) ([]string, bool) {
 	if !ok {
 		return nil, false
 	}
+	
+	return getStringSlice(value)
+}
 
-	// Check if it's already a []string
-	if strSlice, ok := value.([]string); ok {
-		return strSlice, true
+// GetStringMap retrieves a map of string values from the map
+func (rm *RemoteMap) GetStringMap(key string) (map[string]string, bool) {
+	value, ok := rm.Load(key)
+	if !ok {
+		return nil, false
 	}
+	
+	return getStringMap(value)
+}
 
-	// Check if it's a []interface{} that can be converted to []string
-	if anySlice, ok := value.([]interface{}); ok {
-		strSlice := make([]string, 0, len(anySlice))
-		allStrings := true
-		
-		for _, item := range anySlice {
+// GetBoolMap retrieves a map of boolean values from the map
+func (rm *RemoteMap) GetBoolMap(key string) (map[string]bool, bool) {
+	value, ok := rm.Load(key)
+	if !ok {
+		return nil, false
+	}
+	
+	return getBoolMap(value)
+}
+
+// GetStringSliceMap retrieves a map of string slice values from the map
+func (rm *RemoteMap) GetStringSliceMap(key string) (map[string][]string, bool) {
+	value, ok := rm.Load(key)
+	if !ok {
+		return nil, false
+	}
+	
+	return getStringSliceMap(value)
+}
+
+// GetStringSliceWithDefault retrieves a slice of strings from the map or returns a default value if not found
+func (rm *RemoteMap) GetStringSliceWithDefault(key string, defaultValue []string) []string {
+	value, ok := rm.GetStringSlice(key)
+	if !ok {
+		return defaultValue
+	}
+	return value
+}
+
+// GetStringMapWithDefault retrieves a map of string values from the map or returns a default value if not found
+func (rm *RemoteMap) GetStringMapWithDefault(key string, defaultValue map[string]string) map[string]string {
+	value, ok := rm.GetStringMap(key)
+	if !ok {
+		return defaultValue
+	}
+	return value
+}
+
+// GetBoolMapWithDefault retrieves a map of boolean values from the map or returns a default value if not found
+func (rm *RemoteMap) GetBoolMapWithDefault(key string, defaultValue map[string]bool) map[string]bool {
+	value, ok := rm.GetBoolMap(key)
+	if !ok {
+		return defaultValue
+	}
+	return value
+}
+
+// GetStringSliceMapWithDefault retrieves a map of string slice values from the map or returns a default value if not found
+func (rm *RemoteMap) GetStringSliceMapWithDefault(key string, defaultValue map[string][]string) map[string][]string {
+	value, ok := rm.GetStringSliceMap(key)
+	if !ok {
+		return defaultValue
+	}
+	return value
+}
+
+// Helper function to convert a value to a string slice
+func getStringSlice(value interface{}) ([]string, bool) {
+	switch v := value.(type) {
+	case []string:
+		return v, true
+	case []interface{}:
+		result := make([]string, 0, len(v))
+		for _, item := range v {
+			// Try to convert to string
 			if str, ok := item.(string); ok {
-				strSlice = append(strSlice, str)
+				result = append(result, str)
 			} else {
-				allStrings = false
-				break
+				// Skip non-string items
+				continue
 			}
 		}
-		
-		if allStrings {
-			return strSlice, true
-		}
+		return result, true
 	}
+	return nil, false
+}
 
+// Helper function to convert a value to a string map
+func getStringMap(value interface{}) (map[string]string, bool) {
+	switch v := value.(type) {
+	case map[string]string:
+		return v, true
+	case map[string]interface{}:
+		result := make(map[string]string)
+		for k, val := range v {
+			// Try to convert to string
+			if strVal, ok := val.(string); ok {
+				result[k] = strVal
+			}
+			// Skip non-string values
+		}
+		return result, true
+	}
+	return nil, false
+}
+
+// Helper function to convert a value to a boolean map
+func getBoolMap(value interface{}) (map[string]bool, bool) {
+	switch v := value.(type) {
+	case map[string]bool:
+		return v, true
+	case map[string]interface{}:
+		result := make(map[string]bool)
+		for k, val := range v {
+			// Try to convert to bool
+			if boolVal, ok := val.(bool); ok {
+				result[k] = boolVal
+			}
+			// Skip non-bool values
+		}
+		return result, true
+	}
+	return nil, false
+}
+
+// Helper function to convert a value to a string slice map
+func getStringSliceMap(value interface{}) (map[string][]string, bool) {
+	switch v := value.(type) {
+	case map[string][]string:
+		return v, true
+	case map[string]interface{}:
+		result := make(map[string][]string)
+		for k, val := range v {
+			// Try to convert to []string
+			if sliceVal, ok := val.([]interface{}); ok {
+				strSlice := make([]string, 0, len(sliceVal))
+				for _, item := range sliceVal {
+					if strItem, ok := item.(string); ok {
+						strSlice = append(strSlice, strItem)
+					}
+					// Skip non-string items
+				}
+				if len(strSlice) > 0 {
+					result[k] = strSlice
+				}
+			}
+			// Skip non-slice values
+		}
+		return result, true
+	}
 	return nil, false
 }
