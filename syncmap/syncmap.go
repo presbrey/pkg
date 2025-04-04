@@ -34,6 +34,8 @@ type RemoteMap struct {
 	httpClient      *http.Client
 	cancel          context.CancelFunc
 	wg              sync.WaitGroup
+	started         bool
+	mu              sync.Mutex
 }
 
 // NewRemoteMap creates a new RemoteMap that synchronizes with the provided URL
@@ -131,6 +133,14 @@ func (rm *RemoteMap) WithTransformFunc(transform func(map[string]interface{}) ma
 
 // Start begins the periodic refresh of the map from the remote URL and returns the RemoteMap for chaining
 func (rm *RemoteMap) Start() *RemoteMap {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	
+	// Don't start if already running
+	if rm.started {
+		return rm
+	}
+	
 	// Immediately fetch data once
 	if err := rm.Refresh(); err != nil && rm.errorHandler != nil {
 		rm.errorHandler(err)
@@ -158,17 +168,34 @@ func (rm *RemoteMap) Start() *RemoteMap {
 		}
 	}()
 
+	rm.started = true
 	return rm
 }
 
 // Stop halts the periodic refresh of the map and returns the RemoteMap for chaining
 func (rm *RemoteMap) Stop() *RemoteMap {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	
+	if !rm.started {
+		return rm
+	}
+	
 	if rm.cancel != nil {
 		rm.cancel()
 		rm.wg.Wait()
 		rm.cancel = nil
 	}
+	
+	rm.started = false
 	return rm
+}
+
+// Started returns whether the RemoteMap is currently running
+func (rm *RemoteMap) Started() bool {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	return rm.started
 }
 
 // Refresh immediately updates the map from the remote URL and returns any error

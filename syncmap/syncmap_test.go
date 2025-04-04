@@ -1144,3 +1144,71 @@ func TestKeys(t *testing.T) {
 		t.Errorf("Expected empty keys for empty map, got %v", emptyKeys)
 	}
 }
+
+// TestRemoteMapStartedState tests the Started method and start/stop state tracking
+func TestRemoteMapStartedState(t *testing.T) {
+	// Create a test server that returns a simple JSON map
+	testData := map[string]interface{}{
+		"key1": "value1",
+		"key2": 100,
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(testData)
+	}))
+	defer server.Close()
+
+	// Create a RemoteMap but don't start it yet
+	rm := NewRemoteMap(server.URL).
+		WithRefreshPeriod(50 * time.Millisecond).
+		WithTimeout(1 * time.Second)
+
+	// Check initial state - should not be started
+	if rm.Started() {
+		t.Error("RemoteMap should not be started initially")
+	}
+
+	// Start the map
+	rm.Start()
+
+	// Should now be started
+	if !rm.Started() {
+		t.Error("RemoteMap should be started after Start() is called")
+	}
+
+	// Calling Start() again should be a no-op
+	rm.Start()
+
+	// Should still be started
+	if !rm.Started() {
+		t.Error("RemoteMap should still be started after second Start() call")
+	}
+
+	// Stop the map
+	rm.Stop()
+
+	// Should now be stopped
+	if rm.Started() {
+		t.Error("RemoteMap should not be started after Stop() is called")
+	}
+
+	// Calling Stop() again should be a no-op
+	rm.Stop()
+
+	// Should still be stopped
+	if rm.Started() {
+		t.Error("RemoteMap should still be stopped after second Stop() call")
+	}
+
+	// Start again to verify we can restart
+	rm.Start()
+
+	// Should be started again
+	if !rm.Started() {
+		t.Error("RemoteMap should be started after restarting")
+	}
+
+	// Clean up
+	rm.Stop()
+}
