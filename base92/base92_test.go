@@ -72,8 +72,6 @@ func TestDecodeInvalidInput(t *testing.T) {
 		wantErr error
 	}{
 		{"Invalid Character", "ABC#DEF", ErrInvalidChar},
-		{"Invalid Character Space", "ABC DEF", ErrInvalidChar},
-		{"Invalid Character Tab", "ABC\tDEF", ErrInvalidChar},
 	}
 
 	for _, tt := range tests {
@@ -156,4 +154,102 @@ func BenchmarkDecode(b *testing.B) {
 			}
 		})
 	}
+}
+
+// TestDecodeIgnoresWhitespace verifies that Decode ignores whitespace characters.
+func TestDecodeIgnoresWhitespace(t *testing.T) {
+	originalData := []byte("Test data with spaces and newlines")
+	encoded := Encode(originalData)
+
+	tests := []struct {
+		name          string
+		encodedInput  string
+		expectedData  []byte
+		expectErr     bool
+	}{
+		{
+			name:         "Spaces only",
+			encodedInput: insertWhitespace(encoded, ' '),
+			expectedData: originalData,
+		},
+		{
+			name:         "Tabs only",
+			encodedInput: insertWhitespace(encoded, '\t'),
+			expectedData: originalData,
+		},
+		{
+			name:         "Newlines only (LF)",
+			encodedInput: insertWhitespace(encoded, '\n'),
+			expectedData: originalData,
+		},
+		{
+			name:         "Carriage returns only (CR)",
+			encodedInput: insertWhitespace(encoded, '\r'),
+			expectedData: originalData,
+		},
+		{
+			name:         "Mixed whitespace (Space, Tab, LF, CR)",
+			encodedInput: insertMixedWhitespace(encoded),
+			expectedData: originalData,
+		},
+		{
+			name:         "Invalid char with whitespace",
+			encodedInput: encoded[:5] + " # " + encoded[5:], // '#' is invalid
+			expectErr:    true,
+		},
+		{
+			name: "Empty input",
+			encodedInput: "",
+			expectedData: []byte{},
+		},
+		{
+			name: "Whitespace only input",
+			encodedInput: " \t\n\r ",
+			expectedData: []byte{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			decoded, err := Decode(tt.encodedInput)
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("Expected an error, but got nil")
+				}
+				// Optionally check for specific error type if needed, e.g., assert.ErrorIs(t, err, ErrInvalidChar)
+			} else {
+				if err != nil {
+					t.Errorf("Decode failed: %v", err)
+				}
+				if !bytes.Equal(decoded, tt.expectedData) {
+					t.Errorf("Decode() got = %v, want %v", decoded, tt.expectedData)
+				}
+			}
+		})
+	}
+}
+
+// Helper function to insert a specific whitespace character periodically
+func insertWhitespace(s string, whitespaceChar byte) string {
+	var builder strings.Builder
+	for i, r := range s {
+		builder.WriteRune(r)
+		if i%5 == 4 { // Insert whitespace every 5 chars
+			builder.WriteByte(whitespaceChar)
+		}
+	}
+	return builder.String()
+}
+
+// Helper function to insert mixed whitespace characters periodically
+func insertMixedWhitespace(s string) string {
+	var builder strings.Builder
+	whitespace := []byte{' ', '\t', '\n', '\r'}
+	for i, r := range s {
+		builder.WriteRune(r)
+		if i%3 == 2 { // Insert mixed whitespace every 3 chars
+			builder.WriteByte(whitespace[i%len(whitespace)])
+		}
+	}
+	return builder.String()
 }

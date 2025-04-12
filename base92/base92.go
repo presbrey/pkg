@@ -68,6 +68,12 @@ func Decode(encoded string) ([]byte, error) {
 
 	for i := 0; i < len(encoded); i++ {
 		c := encoded[i]
+
+		// Ignore whitespace characters
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			continue
+		}
+
 		index, ok := charToIndexMap[c]
 		if !ok {
 			return nil, ErrInvalidChar
