@@ -1,185 +1,122 @@
-# gormoize
+# GORM Memoization SDK
 
-gormoize is a Go package that provides thread-safe caching for GORM database connections. It helps manage and reuse database connections efficiently while preventing connection leaks in concurrent applications.
+A lightweight, thread-safe Go library for memoizing GORM database connections by their DSN (Data Source Name).
 
 ## Features
 
-- Thread-safe database connection caching
-- Configurable connection lifetime management
-- Automatic cleanup of stale connections
-- Configurable GORM logger settings
-- Compatible with GORM v1.25+
-- Zero external dependencies beyond GORM
+- **Connection Reuse**: Efficiently reuse database connections based on their DSN
+- **Fluent API**: Modern builder pattern for intuitive connection management
+- **Thread Safety**: Concurrent access protection with read/write mutexes
+- **Flexible Creation**: Support for custom connection factory functions
+- **Memory Management**: Methods to clear or selectively remove cached connections
 
-## Usage
+## Installation
+
+```bash
+go get github.com/presbrey/pkg/gormoize
+```
+
+## Usage Examples
 
 ### Basic Usage
 
 ```go
-package main
-
 import (
-    "github.com/presbrey/gormoize"
-    "gorm.io/driver/sqlite"
-)
-
-func main() {
-    // Create a new cache with default options
-    cache := gormoize.New()
-    
-    // Get a database connection
-    db, err := cache.Open(sqlite.Open, "test.db")
-    if err != nil {
-        panic(err)
-    }
-    
-    // Use the db connection with GORM as normal
-    // The connection will be reused for subsequent calls with the same DSN
-}
-```
-
-### Custom Configuration
-
-```go
-package main
-
-import (
-    "time"
-    "github.com/presbrey/gormoize"
-    "gorm.io/driver/sqlite"
-    "gorm.io/gorm/logger"
-)
-
-func main() {
-    // Create a new cache with default settings
-    cache := gormoize.New()
-    
-    // Configure using fluent interface
-    cache.WithCleanupInterval(1 * time.Minute)  // Check for stale connections every minute
-         .WithMaxAge(10 * time.Minute)          // Remove connections unused for 10 minutes
-         .WithLogMode(logger.Error)             // Set GORM logger level to Error
-    
-    db, err := cache.Open(sqlite.Open, "test.db")
-    if err != nil {
-        panic(err)
-    }
-    
-    // The connection will be automatically cleaned up if unused
-}
-```
-
-### Logger Configuration
-
-The package now uses GORM's built-in logger interface directly:
-
-```go
-package main
-
-import (
-    "github.com/presbrey/gormoize"
-    "gorm.io/driver/sqlite"
-    "gorm.io/gorm"
-    "gorm.io/gorm/logger"
-)
-
-func main() {
-    // Create a new cache with default settings (Silent logger)
-    cache := gormoize.New()
-    
-    // Change logger level
-    cache.WithLogMode(logger.Error) // Options: Silent, Error, Warn, Info
-    
-    // You can also pass custom logger configuration when opening a connection
-    customConfig := &gorm.Config{
-        Logger: logger.Default.LogMode(logger.Info),
-    }
-    
-    db, err := cache.Open(sqlite.Open, "test.db", customConfig)
-    if err != nil {
-        panic(err)
-    }
-    
-    // The custom logger configuration takes precedence over the cache's default
-}
-```
-
-## Thread Safety
-
-gormoize is designed for concurrent use. All operations on the connection cache are protected by appropriate locks, ensuring that:
-
-- Multiple goroutines can safely request connections simultaneously
-- Connection cleanup doesn't interfere with active usage
-- Each DSN maintains exactly one database connection
-
-## Connection Lifecycle
-
-- Connections are created on first request for a DSN
-- Subsequent requests for the same DSN return the cached connection
-- Unused connections are automatically closed and removed based on MaxAge
-- If MaxAge is 0, connections remain cached indefinitely
-- The cleanup routine only runs when MaxAge > 0
-
-## Default Settings
-
-- CleanupInterval: 5 minutes
-- MaxAge: 30 minutes
-- LogMode: Silent (no logging)
-
-These can be modified using the fluent interface methods when creating a new cache.
-
-## Testing with Mock Databases
-
-gormoize provides support for mock databases in testing scenarios. You can set a mock database for your tests using the `WithMockDB` method:
-
-```go
-package main
-
-import (
-    "testing"
-    "github.com/presbrey/gormoize"
-    "gorm.io/driver/sqlite"
+    "github.com/presbrey/pkg/gormoize"
+    "gorm.io/driver/postgres"
     "gorm.io/gorm"
 )
 
-func TestMyFunction(t *testing.T) {
-    // Create a new cache
-    cache := gormoize.New()
+func main() {
+    dsn := "host=localhost user=gorm password=gorm dbname=gorm port=9920 sslmode=disable"
     
-    // Create a mock database (using SQLite in-memory for this example)
-    mockDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+    // First call - creates a new connection
+    db, err := gormoize.Connection().
+        WithDSN(dsn).
+        WithDialector(postgres.Open(dsn)).
+        WithConfig(&gorm.Config{}).
+        Get()
+    
     if err != nil {
-        t.Fatalf("failed to create mock DB: %v", err)
+        panic(err)
     }
     
-    // Set the mock database
-    cache.WithMockDB(mockDB)
+    // Second call - reuses the existing connection from cache
+    cachedDB, _ := gormoize.Connection().
+        WithDSN(dsn).
+        Get()
     
-    // Now any calls to cache.Open() will return the mock database
-    // regardless of the provided DSN
-    db, err := cache.Open(sqlite.Open, "any_dsn")
-    if err != nil {
-        t.Fatal(err)
-    }
-    
-    // Use the mock database in your tests
-    // ...
+    // Both db and cachedDB point to the same connection
 }
 ```
 
-The mock database feature is particularly useful for:
-- Unit testing without actual database connections
-- Testing error scenarios
-- Ensuring consistent test behavior
-- Speeding up test execution
+### Using a Custom Factory Function
 
-Note that the mock database will be used for all subsequent `Open` calls until it is cleared or the cache is stopped.
+```go
+dsn := "file::memory:?cache=shared"
 
-## Contributing
+db, err := gormoize.Connection().
+    WithDSN(dsn).
+    WithFactory(func() (*gorm.DB, error) {
+        // Custom connection logic
+        return gorm.Open(sqlite.Open(dsn), &gorm.Config{
+            DisableForeignKeyConstraintWhenMigrating: true,
+        })
+    }).
+    Get()
+```
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+### Connection Management
+
+```go
+// Get all cached connections
+connections := gormoize.GetAll()
+
+// Remove a specific connection
+gormoize.Connection().
+    WithDSN("your-dsn").
+    Remove()
+
+// Clear all connections
+gormoize.Instance().Clear()
+```
+
+## Design Principles
+
+1. **Singleton Cache**: The `DBCache` is implemented as a singleton to ensure a single source of truth for all database connections.
+
+2. **Fluent Interface**: The builder pattern with method chaining creates a readable and discoverable API.
+
+3. **Minimal Dependencies**: Only depends on GORM, no other external libraries required.
+
+4. **Thread Safety**: All operations on the connection cache are protected by appropriate mutex locks.
+
+5. **Error Handling**: Both error-returning and panic-on-error variants are provided to suit different coding styles.
+
+## Advanced Usage
+
+### Using Different Dialectors
+
+```go
+// PostgreSQL
+pgDB, _ := gormmemo.Connection().
+    WithDSN("postgres-dsn").
+    WithDialector(postgres.Open("postgres-dsn")).
+    Get()
+
+// MySQL
+mysqlDB, _ := gormmemo.Connection().
+    WithDSN("mysql-dsn").
+    WithDialector(mysql.Open("mysql-dsn")).
+    Get()
+
+// SQLite
+sqliteDB, _ := gormmemo.Connection().
+    WithDSN("sqlite-dsn").
+    WithDialector(sqlite.Open("sqlite-dsn")).
+    Get()
+```
 
 ## License
 
-MIT License
-
-Copyright (c) 2025 Joe Presbrey
+MIT
