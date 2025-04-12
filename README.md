@@ -1,8 +1,22 @@
-# Go Remote Map Synchronization Libraries
+# Go Utility Packages
 
-This repository contains two Go packages for synchronizing local maps with remote JSON endpoints:
+A collection of useful Go packages: hooks, syncmap, and syncthing.
 
 ## Packages
+
+### [hooks](./hooks)
+
+Provides a flexible hook registration and execution system with priority support.
+
+Key features:
+
+-   **Generic Registry:** Create registries for specific context types (`hooks.NewRegistry[T]()`).
+-   **Hook Functions:** Define hooks as `func(context T) error`.
+-   **Priority:** Register hooks with priorities (`RegisterWithPriority`). Lower numbers run first.
+-   **Execution:** Run hooks in order using `RunHooks(context)`. It returns a map of errors for failed hooks.
+-   **Panic Recovery:** Recovers from panics in individual hooks, allowing others to run.
+
+See the [example](/hooks/example/main.go) for usage.
 
 ### [syncmap](./syncmap)
 
@@ -43,16 +57,6 @@ This repository contains two Go packages for synchronizing local maps with remot
 | Callbacks | Single error handler | Multiple (error, update, delete, refresh) |
 | Change Tracking | No | Yes (added/changed/deleted keys) |
 | Nested Maps | Basic support | Enhanced support with type conversion |
-
-## Installation
-
-```bash
-# Install syncmap
-go get github.com/presbrey/pkg/syncmap
-
-# Install syncthing
-go get github.com/presbrey/pkg/syncthing
-```
 
 ## Quick Start
 
@@ -128,4 +132,4 @@ func main() {
 
 ## License
 
-[License information]
+MIT License
