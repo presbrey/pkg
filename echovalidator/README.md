@@ -92,7 +92,7 @@ func main() {
 
 	// Setup the default singleton validator globally for the Echo instance
 	echovalidator.SetupDefault(e)
-	// Alternatively: e.Validator = echovalidator.DefaultInstance()
+	// Alternatively: e.Validator = echovalidator.Default()
 
 	e.POST("/users", func(c echo.Context) error {
 		u := new(User)
@@ -129,7 +129,7 @@ e.Validator = customValidator
 
 ```go
 // Do this early, e.g., in an init() or main()
-v := echovalidator.DefaultInstance().Validator() // Get underlying validator
+v := echovalidator.Default().Validator() // Get underlying validator
 err := v.RegisterValidation("custom_tag", myCustomValidationFunc)
 // handle err
 echovalidator.SetupDefault(e) // Or assign later

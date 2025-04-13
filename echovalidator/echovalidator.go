@@ -46,50 +46,77 @@ type TestIgnoredField struct {
 
 // --- Instance-Based Validator ---
 
-// CustomValidator holds an instance of the go-playground validator.
-// Use this when you want to manage validator instances explicitly.
-type CustomValidator struct {
+// Wrapper wraps the validator.Validate instance
+type Wrapper struct {
 	validator *validator.Validate
 }
 
-// New creates and returns a new CustomValidator instance,
-// initializing the underlying go-playground validator.
-func New() *CustomValidator {
-	v := validator.New()
+// Configurator provides a fluent interface for configuring the validator.
+type Configurator struct {
+	validator *validator.Validate
+}
 
-	// In the Go Playground validator library, when validation errors occur, the error messages
-	// normally use the struct field name (like Name or Email). However, in API responses, you
-	// typically want to use the JSON field names instead (like name or email).
-	v.RegisterTagNameFunc(func(fld reflect.StructField) string {
+// NewConfigurator creates a new Configurator.
+func NewConfigurator() *Configurator {
+	return &Configurator{
+		validator: validator.New(),
+	}
+}
 
+// RegisterJSONTagNameFunc registers a function to use JSON field names in validation errors.
+// This allows API error messages to refer to 'email' instead of 'Email'.
+func (c *Configurator) RegisterJSONTagNameFunc() *Configurator {
+	c.validator.RegisterTagNameFunc(func(fld reflect.StructField) string {
 		// Split the JSON tag at the first comma
 		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
 
-		// If the JSON tag is "-" (which means "don't include this field in JSON"),
-		// return an empty string
+		// If the JSON tag is "-" (meaning "don't include this field in JSON"),
+		// return an empty string so the validator uses the original field name
+		// or potentially skips it based on other rules.
 		if name == "-" {
+			// Returning an empty string tells the validator to skip this tag name transformation
+			// and potentially fall back to the default field name or other registered tag names.
+			// For the specific goal of using JSON names, returning empty for '-' is appropriate.
 			return ""
 		}
 
 		// Otherwise, return the JSON field name
 		return name
 	})
-
-	return &CustomValidator{validator: v}
+	return c // Return self for chaining
 }
 
-// Validate implements the echo.Validator interface for CustomValidator.
+// Validator returns the configured validator instance.
+func (c *Configurator) Validator() *validator.Validate {
+	return c.validator
+}
+
+// New creates a new Wrapper instance with default configuration.
+// It specifically configures the validator to use JSON tag names in error messages.
+func New() *Wrapper {
+	// Create and configure the validator using the fluent configurator
+	v := NewConfigurator().
+		RegisterJSONTagNameFunc(). // Use JSON tags for field names in errors
+		Validator()                // Get the configured validator instance
+
+	// Return the Wrapper instance which wraps the configured validator
+	return &Wrapper{
+		validator: v,
+	}
+}
+
+// Validate implements the echo.Validator interface for EchoValidator.
 // It uses the go-playground validator to validate the struct 'i'.
 // If validation fails, it returns an HTTPError with status 400
 // and the validation errors. Otherwise, it returns nil.
-func (cv *CustomValidator) Validate(i interface{}) error {
+func (cv *Wrapper) Validate(i any) error {
 	if err := cv.validator.Struct(i); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	return nil
 }
 
-// Setup registers a new CustomValidator instance (created via New())
+// Setup registers a new EchoValidator instance (created via New())
 // with the provided Echo app.
 // This is a convenience function for the instance-based approach.
 // Example:
@@ -109,7 +136,7 @@ func Setup(e *echo.Echo) {
 }
 
 // ValidatorInstance returns the underlying validator.Validate instance
-// from a CustomValidator. This allows for further customization, such as
+// from a EchoValidator. This allows for further customization, such as
 // registering custom validation functions on this specific instance.
 // Example:
 //
@@ -117,7 +144,7 @@ func Setup(e *echo.Echo) {
 //	v := customValidator.Validator()
 //	v.RegisterValidation(...) // Register custom validation
 //	e.Validator = customValidator // Then assign to Echo
-func (cv *CustomValidator) Validator() *validator.Validate {
+func (cv *Wrapper) Validator() *validator.Validate {
 	return cv.validator
 }
 
@@ -137,7 +164,9 @@ var (
 // This function is called exactly once by initOnce.Do.
 func initializeDefault() {
 	singletonInstance = &defaultValidator{
-		validator: validator.New(),
+		validator: NewConfigurator().
+			RegisterJSONTagNameFunc().
+			Validator(),
 	}
 }
 
@@ -145,7 +174,7 @@ func initializeDefault() {
 // It initializes the instance thread-safely on the first call.
 // The returned instance implements the echo.Validator interface.
 // Use this for simple setups where a single global validator is sufficient.
-func DefaultInstance() *defaultValidator {
+func Default() *defaultValidator {
 	initOnce.Do(initializeDefault)
 	return singletonInstance
 }
@@ -188,5 +217,5 @@ func SetupDefault(e *echo.Echo) {
 	if e == nil {
 		panic("echovalidator.SetupDefault: received nil Echo instance")
 	}
-	e.Validator = DefaultInstance() // Assign the singleton
+	e.Validator = Default() // Assign the singleton
 }

@@ -103,8 +103,8 @@ func TestSetup(t *testing.T) {
 
 	echovalidator.Setup(e)
 	assert.NotNil(t, e.Validator, "Validator should be set after Setup()")
-	_, ok := e.Validator.(*echovalidator.CustomValidator)
-	assert.True(t, ok, "Validator should be of type *CustomValidator")
+	_, ok := e.Validator.(*echovalidator.Wrapper)
+	assert.True(t, ok, "Validator should be of type *Wrapper")
 }
 
 func TestSetup_NilEcho(t *testing.T) {

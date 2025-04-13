@@ -1,8 +1,12 @@
 # Go Utility Packages
 
-A collection of useful Go packages: hooks, syncmap, and syncthing.
+A collection of useful Go packages: hooks, syncmap, syncthing, and echovalidator.
 
 ## Packages
+
+### [echovalidator](./echovalidator)
+
+Provides a simple integration of the `go-playground/validator/v10` library with the Echo (`v4`) web framework. Supports instance-based and singleton validators, with automatic JSON tag usage for the former.
 
 ### [hooks](./hooks)
 

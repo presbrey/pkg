@@ -24,11 +24,11 @@ func resetSingleton() {
 func TestDefaultInstance(t *testing.T) {
 	resetSingleton() // Ensure clean state
 
-	instance1 := DefaultInstance() // Use the function directly
-	assert.NotNil(t, instance1, "DefaultInstance() should return a non-nil validator")
+	instance1 := Default() // Use the function directly
+	assert.NotNil(t, instance1, "Default() should return a non-nil validator")
 	assert.NotNil(t, instance1.validator, "Singleton's internal validator should not be nil")
 
-	instance2 := DefaultInstance() // Use the function directly
+	instance2 := Default() // Use the function directly
 	assert.Same(t, instance1, instance2, "Multiple calls to Instance() should return the same singleton instance")
 
 	// Check default tag name function IS NOT the JSON one by default
@@ -66,8 +66,8 @@ func TestDefaultInstance(t *testing.T) {
 }
 
 func TestDefaultValidator_Validate_Valid(t *testing.T) {
-	resetSingleton()        // Ensure clean state
-	dv := DefaultInstance() // Use the function directly
+	resetSingleton() // Ensure clean state
+	dv := Default()  // Use the function directly
 
 	validData := TestValidStruct{
 		Name:  "Jane Doe",
@@ -81,34 +81,35 @@ func TestDefaultValidator_Validate_Valid(t *testing.T) {
 }
 
 func TestDefaultValidator_Validate_Invalid(t *testing.T) {
-	resetSingleton()        // Ensure clean state
-	dv := DefaultInstance() // Use the function directly
+	resetSingleton() // Ensure clean state
+	dv := Default()  // Use the function directly
 
 	invalidData := TestInvalidStruct{
-		Name:  "Test",
+		Name:  "",
 		Email: "invalid-email",
 		Age:   10,
 	}
 
 	err := dv.Validate(invalidData)
-	assert.NotNil(t, err, "Validation should fail for invalid data using singleton")
-
+	assert.Error(t, err, "Validation should fail for invalid struct")
 	httpErr, ok := err.(*echo.HTTPError)
 	assert.True(t, ok, "Error should be an echo.HTTPError")
-	assert.Equal(t, http.StatusBadRequest, httpErr.Code, "HTTP status code should be 400")
-	// NOTE: Default validator uses struct field names (Name, Email, Age) not JSON tags
+	assert.Equal(t, http.StatusBadRequest, httpErr.Code, "HTTP status should be Bad Request")
+
+	// Check that the error message contains the expected validation failures
 	errMsg := httpErr.Message.(string)
-	// assert.Contains(t, errMsg, "Key: 'TestInvalidStruct.Name' Error:Field validation for 'Name' failed on the 'required' tag", "Error message should mention struct field 'Name' and 'required' tag") // Name is valid in test data
-	assert.Contains(t, errMsg, "Key: 'TestInvalidStruct.Email' Error:Field validation for 'Email' failed on the 'email' tag", "Error message should mention struct field 'Email' and 'email' tag")
-	assert.Contains(t, errMsg, "Key: 'TestInvalidStruct.Age' Error:Field validation for 'Age' failed on the 'min' tag", "Error message should mention struct field 'Age' and 'min' tag")
-	// Ensure it's NOT using the JSON tag 'name' for the Name field error (if Name were invalid)
-	assert.NotContains(t, errMsg, "validation failed for 'name'", "Error message should NOT use JSON tag 'name' by default")
+	assert.Contains(t, errMsg, "Key: 'TestInvalidStruct.name' Error:Field validation for 'name' failed on the 'required' tag", "Error message should mention struct field 'Name' and 'required' tag")
+	assert.Contains(t, errMsg, "Key: 'TestInvalidStruct.email' Error:Field validation for 'email' failed on the 'email' tag", "Error message should mention JSON field 'email' and 'email' tag")
+	assert.Contains(t, errMsg, "Key: 'TestInvalidStruct.age' Error:Field validation for 'age' failed on the 'min' tag", "Error message should mention JSON field 'age' and 'min' tag")
+
+	// Optionally, print the error message if debugging
+	// fmt.Printf("Error Message after manual registration: %s\n", errMsg)
 	resetSingleton() // Clean up
 }
 
 func TestDefaultValidator_Validator(t *testing.T) {
-	resetSingleton()        // Ensure clean state
-	dv := DefaultInstance() // Use the function directly
+	resetSingleton() // Ensure clean state
+	dv := Default()  // Use the function directly
 
 	vInstance := dv.Validator()
 	assert.NotNil(t, vInstance, "Validator() should return a non-nil validator.Validate")
@@ -132,8 +133,8 @@ func TestSetupDefault(t *testing.T) {
 	// We can check if it implements the Validate method and if it's the same instance
 	_, ok := e.Validator.(echo.Validator) // Check if it implements the interface
 	assert.True(t, ok, "Assigned validator should implement echo.Validator")
-	assert.Same(t, DefaultInstance(), e.Validator, "Echo's validator should be the singleton instance") // Check instance equality
-	resetSingleton()                                                                                    // Clean up
+	assert.Same(t, Default(), e.Validator, "Echo's validator should be the singleton instance") // Check instance equality
+	resetSingleton()                                                                            // Clean up
 }
 
 func TestSetupDefault_NilEcho(t *testing.T) {
@@ -146,9 +147,9 @@ func TestSetupDefault_NilEcho(t *testing.T) {
 
 // Demonstrates how a user might register the JSON tag name func globally
 func TestSingleton_RegisterTagNameFunc_Manually(t *testing.T) {
-	resetSingleton()        // Ensure clean state
-	dv := DefaultInstance() // Get the singleton
-	v := dv.Validator()     // Get the underlying validator
+	resetSingleton()    // Ensure clean state
+	dv := Default()     // Get the singleton
+	v := dv.Validator() // Get the underlying validator
 
 	// Manually register the tag name function (like New() does)
 	v.RegisterTagNameFunc(func(fld reflect.StructField) string {
