@@ -4,9 +4,9 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// EchoMount defines an interface that captures the common routing methods
+// EchoRouter defines an interface that captures the common routing methods
 // between echo.Echo and echo.Group, allowing for more flexible route registration.
-type EchoMount interface {
+type EchoRouter interface {
 	// Use adds middleware to the router
 	Use(middleware ...echo.MiddlewareFunc)
 
@@ -37,8 +37,8 @@ type EchoMount interface {
 	Group(prefix string, m ...echo.MiddlewareFunc) *echo.Group
 }
 
-// Ensure that both echo.Echo and echo.Group implement the EchoMount interface
+// Ensure that both echo.Echo and echo.Group implement the EchoRouter interface
 var (
-	_ EchoMount = (*echo.Echo)(nil)
-	_ EchoMount = (*echo.Group)(nil)
+	_ EchoRouter = (*echo.Echo)(nil)
+	_ EchoRouter = (*echo.Group)(nil)
 )
