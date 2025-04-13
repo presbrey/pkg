@@ -150,20 +150,15 @@ func (cv *Wrapper) Validator() *validator.Validate {
 
 // --- Singleton Validator ---
 
-// defaultValidator holds the singleton validator instance.
-type defaultValidator struct {
-	validator *validator.Validate
-}
-
 var (
-	singletonInstance *defaultValidator
+	singletonInstance *Wrapper
 	initOnce          sync.Once
 )
 
 // initializeDefault creates the singleton validator instance.
 // This function is called exactly once by initOnce.Do.
 func initializeDefault() {
-	singletonInstance = &defaultValidator{
+	singletonInstance = &Wrapper{
 		validator: NewConfigurator().
 			RegisterJSONTagNameFunc().
 			Validator(),
@@ -174,31 +169,9 @@ func initializeDefault() {
 // It initializes the instance thread-safely on the first call.
 // The returned instance implements the echo.Validator interface.
 // Use this for simple setups where a single global validator is sufficient.
-func Default() *defaultValidator {
+func Default() *Wrapper {
 	initOnce.Do(initializeDefault)
 	return singletonInstance
-}
-
-// Validate implements the echo.Validator interface for the singleton.
-func (dv *defaultValidator) Validate(i interface{}) error {
-	if err := dv.validator.Struct(i); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	return nil
-}
-
-// Validator returns the underlying go-playground/validator instance
-// held by the singleton. Use this *carefully* early in your application's
-// setup if you need to register custom validations globally for the singleton.
-// Example:
-//
-//	// In your main or init function:
-//	v := echovalidator.Instance().Validator()
-//	err := v.RegisterValidation("custom_tag", myCustomFunc)
-//	if err != nil { log.Fatal(err) }
-//	// Now the singleton validator has the custom tag registered.
-func (dv *defaultValidator) Validator() *validator.Validate {
-	return dv.validator
 }
 
 // SetupDefault registers the package-level singleton validator (obtained via Instance())
