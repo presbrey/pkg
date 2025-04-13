@@ -1,4 +1,4 @@
-package types
+package t
 
 import (
 	"github.com/labstack/echo/v4"
