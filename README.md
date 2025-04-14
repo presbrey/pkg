@@ -1,6 +1,6 @@
 # Go Utility Packages
 
-A collection of useful Go packages: hooks, syncmap, syncthing, and echovalidator.
+A collection of useful Go packages: hooks, syncmap, syncthing, echovalidator, and slugs.
 
 ## Packages
 
@@ -21,6 +21,10 @@ Key features:
 -   **Panic Recovery:** Recovers from panics in individual hooks, allowing others to run.
 
 See the [example](/hooks/example/main.go) for usage.
+
+### [slugs](./slugs)
+
+A Go package for generating URL-safe slugs with a fluent API pattern.
 
 ### [syncmap](./syncmap)
 
