@@ -1,9 +1,8 @@
-package echocdn
+package cdns
 
 import (
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/labstack/echo/v4"
 )
@@ -46,42 +45,41 @@ func (cfg *FlyMiddleware) Build() echo.MiddlewareFunc {
 		return func(c echo.Context) error {
 			// Check for Fly-Client-IP header first (preferred method for client IP)
 			flyClientIP := c.Request().Header.Get("Fly-Client-IP")
-			if flyClientIP != "" {
+			if flyClientIP == "" {
+				// this isn't Fly.io
+				return next(c)
+			}
+
+			// Set RealIP if not already set
+			if c.Get("RealIP") == nil {
 				c.Set("RealIP", flyClientIP)
-			} else {
-				// Fallback to X-Forwarded-For header if Fly-Client-IP is not present
-				xForwardedFor := c.Request().Header.Get("X-Forwarded-For")
-				if xForwardedFor != "" {
-					// X-Forwarded-For contains a comma-separated list
-					// The first IP is typically the original client IP
-					ips := strings.Split(xForwardedFor, ",")
-					if len(ips) > 0 {
-						clientIP := strings.TrimSpace(ips[0])
-						c.Set("RealIP", clientIP)
-					}
-				}
+			}
+
+			if cfg.DisableRedirect {
+				return next(c)
 			}
 
 			// Check original protocol for HTTP to HTTPS redirect
 			flyForwardedProto := c.Request().Header.Get("Fly-Forwarded-Proto")
-			// and if redirect is not disabled
-			if !cfg.DisableRedirect && flyForwardedProto != "" && flyForwardedProto != "https" {
-				// If the protocol is not HTTPS, redirect to HTTPS
-				host := c.Request().Host
-				uri := c.Request().RequestURI
 
-				redirectURL := "https://" + host
-				// Append port only if it's not the default 443
-				if cfg.RedirectPort != 443 {
-					redirectURL += ":" + strconv.Itoa(cfg.RedirectPort)
-				}
-				redirectURL += uri
-
-				// Redirect to HTTPS using Permanent Redirect
-				return c.Redirect(http.StatusMovedPermanently, redirectURL)
+			// Redirect if the protocol is not https
+			if flyForwardedProto == "https" {
+				return next(c)
 			}
 
-			return next(c)
+			// If the protocol is not HTTPS, redirect to HTTPS
+			host := c.Request().Host
+			uri := c.Request().RequestURI
+
+			redirectURL := "https://" + host
+			// Append port only if it's not the default 443
+			if cfg.RedirectPort != 443 {
+				redirectURL += ":" + strconv.Itoa(cfg.RedirectPort)
+			}
+			redirectURL += uri
+
+			// Redirect to HTTPS using Permanent Redirect
+			return c.Redirect(http.StatusMovedPermanently, redirectURL)
 		}
 	}
 }

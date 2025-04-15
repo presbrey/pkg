@@ -1,4 +1,4 @@
-package echocdn
+package cdns
 
 import (
 	"net/http"
@@ -46,30 +46,38 @@ func (cfg *CloudflareMiddleware) Build() echo.MiddlewareFunc {
 		return func(c echo.Context) error {
 			// Check for Cloudflare IP header
 			cfIP := c.Request().Header.Get("Cf-Connecting-Ip")
-			if cfIP != "" {
-				c.Set("RealIP", cfIP)
-
-				// Check for Cf-Visitor header for HTTPS redirect
-				cfVisitor := c.Request().Header.Get("Cf-Visitor")
-				// Only redirect if the scheme is not https and redirect is not disabled
-				if !cfg.DisableRedirect && !strings.Contains(cfVisitor, "\"scheme\":\"https\"") {
-					host := c.Request().Host
-					uri := c.Request().RequestURI
-
-					redirectURL := "https://" + host
-					// Append port only if it's not the default 443
-					if cfg.RedirectPort != 443 {
-						redirectURL += ":" + strconv.Itoa(cfg.RedirectPort)
-					}
-					redirectURL += uri
-
-					// Redirect to HTTPS
-					// Use 301 Permanent Redirect as per Cloudflare recommendation for HTTPS redirects
-					return c.Redirect(http.StatusMovedPermanently, redirectURL)
-				}
+			if cfIP == "" {
+				// this isn't Cloudflare
+				return next(c)
 			}
 
-			return next(c)
+			c.Set("RealIP", cfIP)
+
+			if cfg.DisableRedirect {
+				return next(c)
+			}
+
+			// Check for Cf-Visitor header for HTTPS redirect
+			cfVisitor := c.Request().Header.Get("Cf-Visitor")
+
+			if strings.Contains(cfVisitor, "\"scheme\":\"https\"") {
+				return next(c)
+			}
+
+			// Redirect to HTTPS
+			host := c.Request().Host
+			uri := c.Request().RequestURI
+
+			redirectURL := "https://" + host
+			// Append port only if it's not the default 443
+			if cfg.RedirectPort != 443 {
+				redirectURL += ":" + strconv.Itoa(cfg.RedirectPort)
+			}
+			redirectURL += uri
+
+			// Redirect to HTTPS
+			// Use 301 Permanent Redirect as per Cloudflare recommendation for HTTPS redirects
+			return c.Redirect(http.StatusMovedPermanently, redirectURL)
 		}
 	}
 }
