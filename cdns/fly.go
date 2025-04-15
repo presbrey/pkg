@@ -10,7 +10,13 @@ import (
 
 // FlyMiddleware holds configuration for the Fly.io middleware.
 type FlyMiddleware struct {
-	RedirectPort int // Port to use for HTTPS redirect (defaults to 443)
+	DisableRedirect bool // If true, disables the automatic HTTPS redirect
+	RedirectPort    int  // Port to use for HTTPS redirect (defaults to 443)
+}
+
+// FlyWithDefaults handles Fly.io-specific headers using default settings.
+func FlyWithDefaults() echo.MiddlewareFunc {
+	return NewFlyMiddleware().Build()
 }
 
 // NewFlyMiddleware creates a new FlyMiddleware config with default settings.
@@ -18,6 +24,12 @@ func NewFlyMiddleware() *FlyMiddleware {
 	return &FlyMiddleware{
 		RedirectPort: 443, // Default HTTPS port
 	}
+}
+
+// WithoutRedirect disables the automatic HTTPS redirect.
+func (cfg *FlyMiddleware) WithoutRedirect() *FlyMiddleware {
+	cfg.DisableRedirect = true
+	return cfg
 }
 
 // WithRedirectPort sets a custom port for the HTTPS redirect.
@@ -52,8 +64,8 @@ func (cfg *FlyMiddleware) Build() echo.MiddlewareFunc {
 
 			// Check original protocol for HTTP to HTTPS redirect
 			flyForwardedProto := c.Request().Header.Get("Fly-Forwarded-Proto")
-			// Redirect if the protocol is explicitly http (or anything other than https)
-			if flyForwardedProto != "" && flyForwardedProto != "https" {
+			// and if redirect is not disabled
+			if !cfg.DisableRedirect && flyForwardedProto != "" && flyForwardedProto != "https" {
 				// If the protocol is not HTTPS, redirect to HTTPS
 				host := c.Request().Host
 				uri := c.Request().RequestURI
@@ -72,9 +84,4 @@ func (cfg *FlyMiddleware) Build() echo.MiddlewareFunc {
 			return next(c)
 		}
 	}
-}
-
-// FlyWithDefaults handles Fly.io-specific headers using default settings.
-func FlyWithDefaults() echo.MiddlewareFunc {
-	return NewFlyMiddleware().Build()
 }

@@ -3,13 +3,20 @@ package echocdn
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 )
 
 // CloudflareMiddleware holds configuration for the Cloudflare middleware.
 type CloudflareMiddleware struct {
-	RedirectPort int // Port to use for HTTPS redirect (defaults to 443)
+	DisableRedirect bool // If true, disables the automatic HTTPS redirect
+	RedirectPort    int  // Port to use for HTTPS redirect (defaults to 443)
+}
+
+// CloudflareWithDefaults handles Cloudflare-specific headers
+func CloudflareWithDefaults() echo.MiddlewareFunc {
+	return NewCloudflareMiddleware().Build()
 }
 
 // NewCloudflareMiddleware creates a new CloudflareConfig with default settings.
@@ -17,6 +24,12 @@ func NewCloudflareMiddleware() *CloudflareMiddleware {
 	return &CloudflareMiddleware{
 		RedirectPort: 443, // Default HTTPS port
 	}
+}
+
+// WithoutRedirect disables the automatic HTTPS redirect.
+func (cfg *CloudflareMiddleware) WithoutRedirect() *CloudflareMiddleware {
+	cfg.DisableRedirect = true
+	return cfg
 }
 
 // WithRedirectPort sets a custom port for the HTTPS redirect.
@@ -38,8 +51,8 @@ func (cfg *CloudflareMiddleware) Build() echo.MiddlewareFunc {
 
 				// Check for Cf-Visitor header for HTTPS redirect
 				cfVisitor := c.Request().Header.Get("Cf-Visitor")
-				// Only redirect if the scheme is not https
-				if cfVisitor != "" && cfVisitor == "{\"scheme\":\"http\"}" {
+				// Only redirect if the scheme is not https and redirect is not disabled
+				if !cfg.DisableRedirect && !strings.Contains(cfVisitor, "\"scheme\":\"https\"") {
 					host := c.Request().Host
 					uri := c.Request().RequestURI
 
@@ -59,9 +72,4 @@ func (cfg *CloudflareMiddleware) Build() echo.MiddlewareFunc {
 			return next(c)
 		}
 	}
-}
-
-// CloudflareWithDefaults handles Cloudflare-specific headers
-func CloudflareWithDefaults() echo.MiddlewareFunc {
-	return NewCloudflareMiddleware().Build()
 }

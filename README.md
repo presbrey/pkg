@@ -4,6 +4,10 @@ A collection of useful Go packages: hooks, syncmap, syncthing, echovalidator, an
 
 ## Packages
 
+### [cdns](./cdns)
+
+Provides utilities for interacting with various Content Delivery Network (CDN) providers (e.g., Cloudflare, Fly.io).
+
 ### [echovalidator](./echovalidator)
 
 Provides a simple integration of the `go-playground/validator/v10` library with the Echo (`v4`) web framework. Supports instance-based and singleton validators, with automatic JSON tag usage for the former.
