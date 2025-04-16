@@ -51,20 +51,31 @@ func (cfg *CloudflareMiddleware) Build() echo.MiddlewareFunc {
 				return next(c)
 			}
 
-			c.Set("RealIP", cfIP)
+			// Set RealIP if not already set
+			if c.Get("RealIP") == nil {
+				c.Set("RealIP", cfIP)
+			}
 
+			// If redirect is disabled, pass through
 			if cfg.DisableRedirect {
+				return next(c)
+			}
+
+			// Check if already TLS
+			if isTLS, _ := c.Get("IsTLS").(bool); isTLS {
 				return next(c)
 			}
 
 			// Check for Cf-Visitor header for HTTPS redirect
 			cfVisitor := c.Request().Header.Get("Cf-Visitor")
 
+			// Set IsTLS if CDN says it is
 			if strings.Contains(cfVisitor, "\"scheme\":\"https\"") {
+				c.Set("IsTLS", true)
 				return next(c)
 			}
 
-			// Redirect to HTTPS
+			// If the protocol is not HTTPS, redirect to HTTPS
 			host := c.Request().Host
 			uri := c.Request().RequestURI
 
@@ -75,8 +86,7 @@ func (cfg *CloudflareMiddleware) Build() echo.MiddlewareFunc {
 			}
 			redirectURL += uri
 
-			// Redirect to HTTPS
-			// Use 301 Permanent Redirect as per Cloudflare recommendation for HTTPS redirects
+			// Redirect to HTTPS using Permanent Redirect
 			return c.Redirect(http.StatusMovedPermanently, redirectURL)
 		}
 	}

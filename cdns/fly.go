@@ -55,15 +55,22 @@ func (cfg *FlyMiddleware) Build() echo.MiddlewareFunc {
 				c.Set("RealIP", flyClientIP)
 			}
 
+			// If redirect is disabled, pass through
 			if cfg.DisableRedirect {
+				return next(c)
+			}
+
+			// Check if already TLS
+			if isTLS, _ := c.Get("IsTLS").(bool); isTLS {
 				return next(c)
 			}
 
 			// Check original protocol for HTTP to HTTPS redirect
 			flyForwardedProto := c.Request().Header.Get("Fly-Forwarded-Proto")
 
-			// Redirect if the protocol is not https
+			// Set IsTLS if CDN says it is
 			if flyForwardedProto == "https" {
+				c.Set("IsTLS", true)
 				return next(c)
 			}
 
