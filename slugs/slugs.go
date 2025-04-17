@@ -21,6 +21,8 @@ type SlugGenerator struct {
 	prefix          string
 	suffix          string
 	randomLength    int
+	safePattern     *regexp.Regexp
+	multiPattern    *regexp.Regexp
 }
 
 type slugType int
@@ -34,7 +36,7 @@ const (
 
 // New creates a new SlugGenerator with default settings.
 func New() *SlugGenerator {
-	return &SlugGenerator{
+	sg := &SlugGenerator{
 		maxLength:       100,
 		delimiter:       "-",
 		lowercase:       true,
@@ -43,6 +45,8 @@ func New() *SlugGenerator {
 		slugType:        textSlug,
 		randomLength:    8,
 	}
+	sg.compileRegex()
+	return sg
 }
 
 // MaxLength sets the maximum length of the generated slug.
@@ -54,6 +58,7 @@ func (sg *SlugGenerator) MaxLength(length int) *SlugGenerator {
 // Delimiter sets the character used to separate words in the slug.
 func (sg *SlugGenerator) Delimiter(delimiter string) *SlugGenerator {
 	sg.delimiter = delimiter
+	sg.compileRegex()
 	return sg
 }
 
@@ -171,13 +176,11 @@ func (sg *SlugGenerator) generateTextSlug(text string) string {
 	// Join words with delimiter
 	slug := strings.Join(words, sg.delimiter)
 
-	// Ensure URL-safety: remove any non-alphanumeric characters except delimiters
-	safeSlugPattern := regexp.MustCompile(`[^a-zA-Z0-9` + regexp.QuoteMeta(sg.delimiter) + `]+`)
-	slug = safeSlugPattern.ReplaceAllString(slug, "")
+	// Ensure URL-safety using pre-compiled regex
+	slug = sg.safePattern.ReplaceAllString(slug, "")
 
-	// Handle consecutive delimiters
-	multipleDelimiters := regexp.MustCompile(regexp.QuoteMeta(sg.delimiter) + `+`)
-	slug = multipleDelimiters.ReplaceAllString(slug, sg.delimiter)
+	// Handle consecutive delimiters using pre-compiled regex
+	slug = sg.multiPattern.ReplaceAllString(slug, sg.delimiter)
 
 	// Trim delimiters from start and end
 	slug = strings.Trim(slug, sg.delimiter)
@@ -210,9 +213,8 @@ func (sg *SlugGenerator) generateUUID() string {
 		return "error-generating-uuid"
 	}
 
-	uuid := strings.ToLower(strings.ReplaceAll(
-		strings.ReplaceAll(base64.URLEncoding.EncodeToString(b), "=", ""),
-		"+", "-"))
+	// Use RawURLEncoding to drop padding without replacements
+	uuid := strings.ToLower(base64.RawURLEncoding.EncodeToString(b))
 
 	if len(uuid) > sg.maxLength {
 		uuid = uuid[:sg.maxLength]
@@ -258,6 +260,13 @@ func (sg *SlugGenerator) generateRandomSlug() string {
 	}
 
 	return string(bytes)
+}
+
+// compileRegex compiles regex patterns based on the current delimiter.
+func (sg *SlugGenerator) compileRegex() {
+	d := regexp.QuoteMeta(sg.delimiter)
+	sg.safePattern = regexp.MustCompile("[^a-zA-Z0-9" + d + "]+")
+	sg.multiPattern = regexp.MustCompile(d + "+")
 }
 
 // Common English stop words that can be removed from slugs
