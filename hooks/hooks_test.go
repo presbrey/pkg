@@ -164,6 +164,129 @@ func TestRegistryConcurrency(t *testing.T) {
 	}
 }
 
+func TestRegistryPriorityFilters(t *testing.T) {
+	registry := NewRegistry[*TestContext]()
+
+	// Register hooks with different priorities
+	hooks := map[int64]string{
+		-10: "p-10",
+		-5:  "p-5",
+		0:   "p0",
+		5:   "p5",
+		10:  "p10",
+	}
+
+	for priority, name := range hooks {
+		localName := name // capture loop variable
+		registry.RegisterWithPriority(func(ctx *TestContext) error {
+			ctx.AddToOrder(localName)
+			return nil
+		}, priority)
+	}
+
+	assertOrder := func(t *testing.T, ctx *TestContext, expected []string) {
+		t.Helper()
+		ctx.Mutex.Lock()
+		defer ctx.Mutex.Unlock()
+		if len(ctx.Order) != len(expected) {
+			t.Errorf("Expected order length %d, got %d. Expected: %v, Got: %v", len(expected), len(ctx.Order), expected, ctx.Order)
+			return
+		}
+		for i, v := range expected {
+			if ctx.Order[i] != v {
+				t.Errorf("Expected execution order %v, got %v at index %d", expected, ctx.Order, i)
+				break
+			}
+		}
+	}
+
+	resetContext := func() *TestContext {
+		return &TestContext{Order: make([]string, 0)}
+	}
+
+	t.Run("RunPriorityRange", func(t *testing.T) {
+		ctx := resetContext()
+		registry.RunPriorityRange(ctx, -5, 5) // Includes -5, 0, 5
+		assertOrder(t, ctx, []string{"p-5", "p0", "p5"})
+
+		ctx = resetContext()
+		registry.RunPriorityRange(ctx, -100, -6) // Includes -10
+		assertOrder(t, ctx, []string{"p-10"})
+
+		ctx = resetContext()
+		registry.RunPriorityRange(ctx, 6, 100) // Includes 10
+		assertOrder(t, ctx, []string{"p10"})
+
+		ctx = resetContext()
+		registry.RunPriorityRange(ctx, 0, 0) // Includes 0
+		assertOrder(t, ctx, []string{"p0"})
+
+		ctx = resetContext()
+		registry.RunPriorityRange(ctx, 20, 30) // Includes none
+		assertOrder(t, ctx, []string{})
+	})
+
+	t.Run("RunPriorityLessThan", func(t *testing.T) {
+		ctx := resetContext()
+		registry.RunPriorityLessThan(ctx, 0) // Includes -10, -5
+		assertOrder(t, ctx, []string{"p-10", "p-5"})
+
+		ctx = resetContext()
+		registry.RunPriorityLessThan(ctx, 6) // Includes -10, -5, 0, 5
+		assertOrder(t, ctx, []string{"p-10", "p-5", "p0", "p5"})
+
+		ctx = resetContext()
+		registry.RunPriorityLessThan(ctx, -10) // Includes none
+		assertOrder(t, ctx, []string{})
+	})
+
+	t.Run("RunPriorityGreaterThan", func(t *testing.T) {
+		ctx := resetContext()
+		registry.RunPriorityGreaterThan(ctx, 0) // Includes 5, 10
+		assertOrder(t, ctx, []string{"p5", "p10"})
+
+		ctx = resetContext()
+		registry.RunPriorityGreaterThan(ctx, -6) // Includes -5, 0, 5, 10
+		assertOrder(t, ctx, []string{"p-5", "p0", "p5", "p10"})
+
+		ctx = resetContext()
+		registry.RunPriorityGreaterThan(ctx, 10) // Includes none
+		assertOrder(t, ctx, []string{})
+	})
+
+	t.Run("RunLevel", func(t *testing.T) {
+		ctx := resetContext()
+		registry.RunLevel(ctx, 0) // Includes p0
+		assertOrder(t, ctx, []string{"p0"})
+
+		ctx = resetContext()
+		registry.RunLevel(ctx, -10) // Includes p-10
+		assertOrder(t, ctx, []string{"p-10"})
+
+		ctx = resetContext()
+		registry.RunLevel(ctx, 7) // Includes none
+		assertOrder(t, ctx, []string{})
+	})
+
+	t.Run("RunEarly", func(t *testing.T) {
+		ctx := resetContext()
+		registry.RunEarly(ctx) // Should run p-10, p-5
+		assertOrder(t, ctx, []string{"p-10", "p-5"})
+	})
+
+	t.Run("RunMiddle", func(t *testing.T) {
+		ctx := resetContext()
+		registry.RunMiddle(ctx) // Should run p0
+		assertOrder(t, ctx, []string{"p0"})
+	})
+
+	t.Run("RunLate", func(t *testing.T) {
+		ctx := resetContext()
+		registry.RunLate(ctx) // Should run p5, p10
+		assertOrder(t, ctx, []string{"p5", "p10"})
+	})
+}
+
 func BenchmarkRegistryExecution(b *testing.B) {
 	registry := NewRegistry[*TestContext]()
 

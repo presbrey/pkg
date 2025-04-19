@@ -83,6 +83,27 @@ errsLate := registry.RunLate(context)
 
 // Run all hooks in order (Early, Middle, Late)
 errsAll := registry.RunAll(context)
+
+### Advanced Priority Execution
+
+In addition to the standard phases, you can run hooks based on more specific priority criteria:
+
+```go
+// Run hooks with priority within a specific range (inclusive)
+// For example, run hooks with priority between -5 and 5
+errsRange := registry.RunPriorityRange(context, -5, 5)
+
+// Run hooks with priority strictly less than a value
+// For example, run hooks with priority less than 0 (equivalent to RunEarly)
+errsLessThan := registry.RunPriorityLessThan(context, 0)
+
+// Run hooks with priority strictly greater than a value
+// For example, run hooks with priority greater than 0 (equivalent to RunLate)
+errsGreaterThan := registry.RunPriorityGreaterThan(context, 0)
+
+// Run hooks with a specific priority level
+// For example, run hooks with priority exactly 0 (equivalent to RunMiddle)
+errsLevel := registry.RunLevel(context, 0)
 ```
 
 ### Managing the Registry

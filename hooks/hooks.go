@@ -95,33 +95,52 @@ func (r *Registry[T]) runHooksWithFilter(context T, filter func(HookInfo[T]) boo
 
 // RunEarly executes hooks with priority < 0
 func (r *Registry[T]) RunEarly(context T) map[string]error {
-	return r.runHooksWithFilter(context, func(hi HookInfo[T]) bool { return hi.Priority < 0 })
+	return r.RunPriorityLessThan(context, 0)
 }
 
 // RunMiddle executes hooks with priority == 0
 func (r *Registry[T]) RunMiddle(context T) map[string]error {
-	return r.runHooksWithFilter(context, func(hi HookInfo[T]) bool { return hi.Priority == 0 })
+	return r.RunLevel(context, 0)
 }
 
 // RunLate executes hooks with priority > 0
 func (r *Registry[T]) RunLate(context T) map[string]error {
-	return r.runHooksWithFilter(context, func(hi HookInfo[T]) bool { return hi.Priority > 0 })
+	return r.RunPriorityGreaterThan(context, 0)
+}
+
+// RunPriorityRange executes hooks with priority >= minPriority and <= maxPriority
+func (r *Registry[T]) RunPriorityRange(context T, minPriority, maxPriority int64) map[string]error {
+	return r.runHooksWithFilter(context, func(hi HookInfo[T]) bool {
+		return hi.Priority >= minPriority && hi.Priority <= maxPriority
+	})
+}
+
+// RunPriorityLessThan executes hooks with priority < p
+func (r *Registry[T]) RunPriorityLessThan(context T, p int64) map[string]error {
+	return r.runHooksWithFilter(context, func(hi HookInfo[T]) bool {
+		return hi.Priority < p
+	})
+}
+
+// RunPriorityGreaterThan executes hooks with priority > p
+func (r *Registry[T]) RunPriorityGreaterThan(context T, p int64) map[string]error {
+	return r.runHooksWithFilter(context, func(hi HookInfo[T]) bool {
+		return hi.Priority > p
+	})
+}
+
+// RunLevel executes hooks with priority == level
+func (r *Registry[T]) RunLevel(context T, level int64) map[string]error {
+	return r.runHooksWithFilter(context, func(hi HookInfo[T]) bool {
+		return hi.Priority == level
+	})
 }
 
 // RunAll executes all hooks in order: Early, Middle, Late
 // Returns a map of hook names to errors for any hooks that failed
 func (r *Registry[T]) RunAll(context T) map[string]error {
-	allErrs := make(map[string]error)
-	for _, run := range []func(T) map[string]error{r.RunEarly, r.RunMiddle, r.RunLate} {
-		errMap := run(context)
-		for k, v := range errMap {
-			allErrs[k] = v
-		}
-	}
-	if len(allErrs) == 0 {
-		return nil
-	}
-	return allErrs
+	// Run all hooks by providing a filter that always returns true
+	return r.runHooksWithFilter(context, func(hi HookInfo[T]) bool { return true })
 }
 
 // Clear removes all hooks from the registry
