@@ -51,42 +51,37 @@ func (r *Registry[T]) RegisterWithPriority(hook Hook[T], priority int64) {
 		Hook:     hook,
 		Priority: priority,
 	})
+	// Sort hooks by priority (lowest first) after each registration
+	sort.Slice(r.hooks, func(i, j int) bool {
+		return r.hooks[i].Priority < r.hooks[j].Priority
+	})
 }
 
-// RunHooks executes all registered hooks with the provided context
-// Hooks are executed in priority order (lower values first)
-// It returns a map of hook names to errors for any hooks that failed
-func (r *Registry[T]) RunHooks(context T) map[string]error {
+// runHooksWithFilter is a helper to execute hooks matching a filter, in priority order.
+func (r *Registry[T]) runHooksWithFilter(context T, filter func(HookInfo[T]) bool) map[string]error {
 	r.mu.RLock()
-	// Create a copy of the hooks slice to avoid holding the lock during execution
-	hooks := make([]HookInfo[T], len(r.hooks))
-	copy(hooks, r.hooks)
+	hooks := make([]HookInfo[T], 0, len(r.hooks))
+	for _, hi := range r.hooks {
+		if filter == nil || filter(hi) {
+			hooks = append(hooks, hi)
+		}
+	}
 	r.mu.RUnlock()
-
-	// Sort hooks by priority (lower values first)
-	sort.Slice(hooks, func(i, j int) bool {
-		return hooks[i].Priority < hooks[j].Priority
-	})
 
 	hookErrors := make(map[string]error)
 
 	for _, hookInfo := range hooks {
-		// Recover from panics in hooks to prevent one hook from breaking everything
 		err := func() error {
 			defer func() {
 				if r := recover(); r != nil {
 					log.Printf("PANIC in hook %s: %v", hookInfo.Name, r)
-
-					// Convert panic to error
 					err := fmt.Errorf("panic in hook %s: %v", hookInfo.Name, r)
 					hookErrors[hookInfo.Name] = err
 				}
 			}()
 			return hookInfo.Hook(context)
 		}()
-
 		if err != nil && hookErrors[hookInfo.Name] == nil {
-			// Only store the error if it's not already set by panic recovery
 			hookErrors[hookInfo.Name] = err
 			log.Printf("ERROR in hook %s: %v", hookInfo.Name, err)
 		}
@@ -96,6 +91,37 @@ func (r *Registry[T]) RunHooks(context T) map[string]error {
 		return nil
 	}
 	return hookErrors
+}
+
+// RunEarly executes hooks with priority < 0
+func (r *Registry[T]) RunEarly(context T) map[string]error {
+	return r.runHooksWithFilter(context, func(hi HookInfo[T]) bool { return hi.Priority < 0 })
+}
+
+// RunMiddle executes hooks with priority == 0
+func (r *Registry[T]) RunMiddle(context T) map[string]error {
+	return r.runHooksWithFilter(context, func(hi HookInfo[T]) bool { return hi.Priority == 0 })
+}
+
+// RunLate executes hooks with priority > 0
+func (r *Registry[T]) RunLate(context T) map[string]error {
+	return r.runHooksWithFilter(context, func(hi HookInfo[T]) bool { return hi.Priority > 0 })
+}
+
+// RunAll executes all hooks in order: Early, Middle, Late
+// Returns a map of hook names to errors for any hooks that failed
+func (r *Registry[T]) RunAll(context T) map[string]error {
+	allErrs := make(map[string]error)
+	for _, run := range []func(T) map[string]error{r.RunEarly, r.RunMiddle, r.RunLate} {
+		errMap := run(context)
+		for k, v := range errMap {
+			allErrs[k] = v
+		}
+	}
+	if len(allErrs) == 0 {
+		return nil
+	}
+	return allErrs
 }
 
 // Clear removes all hooks from the registry

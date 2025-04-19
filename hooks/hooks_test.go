@@ -40,7 +40,7 @@ func TestRegistryBasic(t *testing.T) {
 
 	// Run hooks
 	ctx := &TestContext{Value: "original"}
-	errors := registry.RunHooks(ctx)
+	errors := registry.RunAll(ctx)
 
 	if errors != nil {
 		t.Errorf("Expected no errors, got %v", errors)
@@ -79,7 +79,7 @@ func TestRegistryPriority(t *testing.T) {
 
 	// Run hooks
 	ctx := &TestContext{Order: make([]string, 0)}
-	registry.RunHooks(ctx)
+	registry.RunAll(ctx)
 
 	// Check execution order
 	expected := []string{"first", "second", "third"}
@@ -102,7 +102,7 @@ func TestRegistryErrors(t *testing.T) {
 
 	// Run hooks
 	ctx := &TestContext{}
-	errors := registry.RunHooks(ctx)
+	errors := registry.RunAll(ctx)
 
 	if errors == nil {
 		t.Errorf("Expected errors, got nil")
@@ -123,7 +123,7 @@ func TestRegistryPanic(t *testing.T) {
 
 	// Run hooks
 	ctx := &TestContext{}
-	errors := registry.RunHooks(ctx)
+	errors := registry.RunAll(ctx)
 
 	if errors == nil {
 		t.Errorf("Expected errors, got nil")
@@ -153,7 +153,7 @@ func TestRegistryConcurrency(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			ctx := &TestContext{}
-			registry.RunHooks(ctx)
+			registry.RunAll(ctx)
 		}()
 	}
 
@@ -179,6 +179,6 @@ func BenchmarkRegistryExecution(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		registry.RunHooks(ctx)
+		registry.RunAll(ctx)
 	}
 }

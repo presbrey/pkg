@@ -62,7 +62,7 @@ func main() {
 	}
 
 	// Run all site initialization hooks
-	errors := siteInitRegistry.RunHooks(site)
+	errors := siteInitRegistry.RunAll(site)
 
 	// Log any errors that occurred during initialization
 	if errors != nil {

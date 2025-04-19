@@ -31,9 +31,9 @@ registry.Register(func(ctx *MyContext) error {
     return nil
 })
 
-// Execute all registered hooks
+// Execute all registered hooks (all phases)
 context := &MyContext{}
-errors := registry.RunHooks(context)
+errors := registry.RunAll(context)
 
 // Check for errors
 if errors != nil {
@@ -41,29 +41,48 @@ if errors != nil {
 }
 ```
 
-### Priority-Based Execution
+### Priority-Based Execution and Phases
+
+Hooks are divided into three phases based on priority:
+- **Early**: priority < 0 (`RunEarly`)
+- **Middle**: priority == 0 (`RunMiddle`)
+- **Late**: priority > 0 (`RunLate`)
+
+You can run hooks by phase or all together:
 
 ```go
 // Register hooks with different priorities
 // Lower values run first (like Unix nice)
 
-// High priority (runs first)
+// High priority (runs first, Early phase)
 registry.RegisterWithPriority(func(ctx *MyContext) error {
     // This runs first
     return nil
 }, -10)
 
-// Normal priority
+// Normal priority (Middle phase)
 registry.Register(func(ctx *MyContext) error {
-    // This runs second
+    // This runs in the middle
     return nil
 })
 
-// Low priority (runs last)
+// Low priority (runs last, Late phase)
 registry.RegisterWithPriority(func(ctx *MyContext) error {
     // This runs last
     return nil
 }, 10)
+
+// Run only Early hooks
+errsEarly := registry.RunEarly(context)
+
+// Run only Middle hooks
+errsMiddle := registry.RunMiddle(context)
+
+// Run only Late hooks
+errsLate := registry.RunLate(context)
+
+// Run all hooks in order (Early, Middle, Late)
+errsAll := registry.RunAll(context)
 ```
 
 ### Managing the Registry
