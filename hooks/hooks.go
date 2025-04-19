@@ -100,7 +100,7 @@ func (r *Registry[T]) RunEarly(context T) map[string]error {
 
 // RunMiddle executes hooks with priority == 0
 func (r *Registry[T]) RunMiddle(context T) map[string]error {
-	return r.RunLevel(context, 0)
+	return r.RunPriorityLevel(context, 0)
 }
 
 // RunLate executes hooks with priority > 0
@@ -129,8 +129,8 @@ func (r *Registry[T]) RunPriorityGreaterThan(context T, p int64) map[string]erro
 	})
 }
 
-// RunLevel executes hooks with priority == level
-func (r *Registry[T]) RunLevel(context T, level int64) map[string]error {
+// RunPriorityLevel executes hooks with priority == level
+func (r *Registry[T]) RunPriorityLevel(context T, level int64) map[string]error {
 	return r.runHooksWithFilter(context, func(hi HookInfo[T]) bool {
 		return hi.Priority == level
 	})

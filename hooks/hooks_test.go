@@ -254,17 +254,17 @@ func TestRegistryPriorityFilters(t *testing.T) {
 		assertOrder(t, ctx, []string{})
 	})
 
-	t.Run("RunLevel", func(t *testing.T) {
+	t.Run("RunPriorityLevel", func(t *testing.T) {
 		ctx := resetContext()
-		registry.RunLevel(ctx, 0) // Includes p0
+		registry.RunPriorityLevel(ctx, 0) // Includes p0
 		assertOrder(t, ctx, []string{"p0"})
 
 		ctx = resetContext()
-		registry.RunLevel(ctx, -10) // Includes p-10
+		registry.RunPriorityLevel(ctx, -10) // Includes p-10
 		assertOrder(t, ctx, []string{"p-10"})
 
 		ctx = resetContext()
-		registry.RunLevel(ctx, 7) // Includes none
+		registry.RunPriorityLevel(ctx, 7) // Includes none
 		assertOrder(t, ctx, []string{})
 	})
 
