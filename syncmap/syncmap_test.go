@@ -1011,7 +1011,8 @@ func TestOnUpdate(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Track update callback invocations
+	// Track callback invocations with proper synchronization
+	var callbackMutex sync.Mutex
 	updateCallbackCalled := false
 	var updatedKeys []string
 
@@ -1024,12 +1025,16 @@ func TestOnUpdate(t *testing.T) {
 		WithRefreshPeriod(50 * time.Millisecond).
 		WithTimeout(1 * time.Second).
 		WithUpdateCallback(func(keys []string) {
+			callbackMutex.Lock()
 			updateCallbackCalled = true
 			updatedKeys = keys
+			callbackMutex.Unlock()
 		}).
 		WithDeleteCallback(func(keys []string) {
+			callbackMutex.Lock()
 			deleteCallbackCalled = true
 			deletedKeys = keys
+			callbackMutex.Unlock()
 		}).
 		Start()
 
@@ -1076,19 +1081,31 @@ func TestOnUpdate(t *testing.T) {
 	}
 
 	// Verify update callback was called with the correct keys
-	if !updateCallbackCalled {
+	callbackMutex.Lock()
+	updateCalled := updateCallbackCalled
+	updatedKeysCopy := make([]string, len(updatedKeys))
+	copy(updatedKeysCopy, updatedKeys)
+	callbackMutex.Unlock()
+	
+	if !updateCalled {
 		t.Error("Update callback was not called")
 	}
-	if len(updatedKeys) != 1 || updatedKeys[0] != "key1" {
-		t.Errorf("Expected updated keys to be [key1], got %v", updatedKeys)
+	if len(updatedKeysCopy) != 1 || updatedKeysCopy[0] != "key1" {
+		t.Errorf("Expected updated keys to be [key1], got %v", updatedKeysCopy)
 	}
 
 	// Verify delete callback was called with the correct keys
-	if !deleteCallbackCalled {
+	callbackMutex.Lock()
+	deleteCalled := deleteCallbackCalled
+	deletedKeysCopy := make([]string, len(deletedKeys))
+	copy(deletedKeysCopy, deletedKeys)
+	callbackMutex.Unlock()
+	
+	if !deleteCalled {
 		t.Error("Delete callback was not called")
 	}
-	if len(deletedKeys) != 1 || deletedKeys[0] != "key2" {
-		t.Errorf("Expected deleted keys to be [key2], got %v", deletedKeys)
+	if len(deletedKeysCopy) != 1 || deletedKeysCopy[0] != "key2" {
+		t.Errorf("Expected deleted keys to be [key2], got %v", deletedKeysCopy)
 	}
 }
 
