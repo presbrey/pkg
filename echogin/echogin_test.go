@@ -41,7 +41,7 @@ func resetGlobals() {
 
 	// Reset the core echogin globals by creating new instances
 	defaultEcho = echo.New()
-	defaultGroup = defaultEcho.Group("")
+	defaultTarget = defaultEcho.Group("")
 
 	// Re-apply necessary initial configurations similar to the init() block in echogin.go
 	// (Consider if the init() logic needs duplication or if resetting is sufficient)
@@ -50,6 +50,8 @@ func resetGlobals() {
 
 	// Any other package-level state in echogin.go that needs resetting for tests
 	// should be added here.
+
+	hostGroups = sync.Map{}
 }
 
 func performRequest(method, path string, body io.Reader) *httptest.ResponseRecorder {
@@ -291,7 +293,7 @@ func TestServerLifecycle(t *testing.T) {
 		addr := "127.0.0.1:0" // Use 127.0.0.1 and let OS pick port
 		e := Echo()
 
-		started := make(chan struct{}) // Channel to signal startup
+		started := make(chan struct{})  // Channel to signal startup
 		startErr := make(chan error, 1) // Channel to capture Start error
 
 		go func() {
@@ -302,7 +304,7 @@ func TestServerLifecycle(t *testing.T) {
 				close(started) // Signal completion (with error)
 				return
 			}
-			SetListener(l) // Set the listener for echogin to use
+			SetListener(l)           // Set the listener for echogin to use
 			addr = l.Addr().String() // Get the actual address with the assigned port
 
 			// Signal that the listener is ready and address is updated

@@ -24,9 +24,9 @@ var (
 	// defaultEcho holds the single, package-wide Echo instance.
 	defaultEcho = echo.New()
 
-	// defaultGroup holds the root group associated with defaultEcho.
+	// defaultTarget holds the root group associated with defaultEcho.
 	// Since *echo.Echo implements the Group interface, we can use it directly.
-	defaultGroup = defaultEcho.Group("")
+	defaultTarget = defaultEcho.Group("")
 
 	// hostGroups caches host groups to ensure the same group is returned for the same host.
 	hostGroups sync.Map
@@ -41,7 +41,7 @@ func init() {
 // Default initializes and returns the package-wide default *echo.Group.
 // It's safe to call Default multiple times; initialization happens only once.
 func Default() *echo.Group {
-	return defaultGroup
+	return defaultTarget
 }
 
 // --- Package-level Routing Methods ---
@@ -49,67 +49,67 @@ func Default() *echo.Group {
 
 // GET registers a new GET route for the default group.
 func GET(path string, h HandlerFunc, m ...MiddlewareFunc) *echo.Route {
-	return defaultGroup.GET(path, h, m...)
+	return defaultTarget.GET(path, h, m...)
 }
 
 // POST registers a new POST route for the default group.
 func POST(path string, h HandlerFunc, m ...MiddlewareFunc) *echo.Route {
-	return defaultGroup.POST(path, h, m...)
+	return defaultTarget.POST(path, h, m...)
 }
 
 // PUT registers a new PUT route for the default group.
 func PUT(path string, h HandlerFunc, m ...MiddlewareFunc) *echo.Route {
-	return defaultGroup.PUT(path, h, m...)
+	return defaultTarget.PUT(path, h, m...)
 }
 
 // DELETE registers a new DELETE route for the default group.
 func DELETE(path string, h HandlerFunc, m ...MiddlewareFunc) *echo.Route {
-	return defaultGroup.DELETE(path, h, m...)
+	return defaultTarget.DELETE(path, h, m...)
 }
 
 // PATCH registers a new PATCH route for the default group.
 func PATCH(path string, h HandlerFunc, m ...MiddlewareFunc) *echo.Route {
-	return defaultGroup.PATCH(path, h, m...)
+	return defaultTarget.PATCH(path, h, m...)
 }
 
 // OPTIONS registers a new OPTIONS route for the default group.
 func OPTIONS(path string, h HandlerFunc, m ...MiddlewareFunc) *echo.Route {
-	return defaultGroup.OPTIONS(path, h, m...)
+	return defaultTarget.OPTIONS(path, h, m...)
 }
 
 // HEAD registers a new HEAD route for the default group.
 func HEAD(path string, h HandlerFunc, m ...MiddlewareFunc) *echo.Route {
-	return defaultGroup.HEAD(path, h, m...)
+	return defaultTarget.HEAD(path, h, m...)
 }
 
 // Any registers a route that matches all the HTTP methods.
 // GET, POST, PUT, PATCH, HEAD, OPTIONS, DELETE, CONNECT, TRACE.
 func Any(path string, h HandlerFunc, m ...MiddlewareFunc) []*echo.Route {
-	return defaultGroup.Any(path, h, m...)
+	return defaultTarget.Any(path, h, m...)
 }
 
 // Match registers a new route for multiple HTTP methods.
 func Match(methods []string, path string, h echo.HandlerFunc, m ...MiddlewareFunc) []*echo.Route {
-	return defaultGroup.Match(methods, path, h, m...)
+	return defaultTarget.Match(methods, path, h, m...)
 }
 
 // Static registers a new route with path prefix to serve static files from the
 // provided file system directory.
 func Static(prefix, root string) {
-	defaultGroup.Static(prefix, root)
+	defaultTarget.Static(prefix, root)
 }
 
 // StaticFS registers a new route with path prefix to serve static files from the
 // provided file system.
 func StaticFS(path string, filesystem fs.FS) {
-	defaultGroup.StaticFS(path, filesystem)
+	defaultTarget.StaticFS(path, filesystem)
 }
 
 // --- Package-level Grouping and Middleware ---
 
 // Group creates a new sub-group from the default group.
 func Group(prefix string, m ...MiddlewareFunc) *echo.Group {
-	return defaultGroup.Group(prefix, m...)
+	return defaultTarget.Group(prefix, m...)
 }
 
 // Host creates a new sub-group from the default Echo instance with the specified host.
@@ -128,21 +128,21 @@ func Host(host string, m ...MiddlewareFunc) *echo.Group {
 
 	// Create a new group for this host
 	group := defaultEcho.Host(host)
-	
+
 	// Apply middleware if provided
 	if len(m) > 0 {
 		group.Use(m...)
 	}
-	
+
 	// Store the group in the cache
 	hostGroups.Store(host, group)
-	
+
 	return group
 }
 
 // Use applies middleware to the default group.
 func Use(middleware ...MiddlewareFunc) {
-	defaultGroup.Use(middleware...)
+	defaultTarget.Use(middleware...)
 }
 
 // --- Package-level Server Execution ---
