@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"sync"
 
 	"github.com/labstack/echo/v4"
 )
@@ -26,6 +27,9 @@ var (
 	// defaultGroup holds the root group associated with defaultEcho.
 	// Since *echo.Echo implements the Group interface, we can use it directly.
 	defaultGroup = defaultEcho.Group("")
+
+	// hostGroups caches host groups to ensure the same group is returned for the same host.
+	hostGroups sync.Map
 )
 
 func init() {
@@ -109,8 +113,31 @@ func Group(prefix string, m ...MiddlewareFunc) *echo.Group {
 }
 
 // Host creates a new sub-group from the default Echo instance with the specified host.
+// It uses a sync.Map to cache host groups, ensuring that different callers get the
+// same group when they pass the same host.
 func Host(host string, m ...MiddlewareFunc) *echo.Group {
-	return defaultEcho.Host(host, m...)
+	// Check if we already have a group for this host
+	if group, ok := hostGroups.Load(host); ok {
+		// If middleware is provided, apply it to the existing group
+		if len(m) > 0 {
+			g := group.(*echo.Group)
+			g.Use(m...)
+		}
+		return group.(*echo.Group)
+	}
+
+	// Create a new group for this host
+	group := defaultEcho.Host(host)
+	
+	// Apply middleware if provided
+	if len(m) > 0 {
+		group.Use(m...)
+	}
+	
+	// Store the group in the cache
+	hostGroups.Store(host, group)
+	
+	return group
 }
 
 // Use applies middleware to the default group.
