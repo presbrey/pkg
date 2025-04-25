@@ -4,9 +4,11 @@ package slugs
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/binary"
 	"math/big"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -29,7 +31,8 @@ type slugType int
 
 const (
 	textSlug slugType = iota
-	uuidSlug
+	uuidV4Slug
+	uuidV7Slug
 	nanoidSlug
 	randomSlug
 )
@@ -97,9 +100,21 @@ func (sg *SlugGenerator) WithSuffix(suffix string) *SlugGenerator {
 	return sg
 }
 
-// UUID sets the generator to create UUID-based slugs.
+// UUID sets the generator to create UUID v4-based slugs (for backward compatibility).
 func (sg *SlugGenerator) UUID() *SlugGenerator {
-	sg.slugType = uuidSlug
+	sg.slugType = uuidV4Slug
+	return sg
+}
+
+// UUIDv4 sets the generator to create UUID v4-based slugs.
+func (sg *SlugGenerator) UUIDv4() *SlugGenerator {
+	sg.slugType = uuidV4Slug
+	return sg
+}
+
+// UUIDv7 sets the generator to create UUID v7-based slugs.
+func (sg *SlugGenerator) UUIDv7() *SlugGenerator {
+	sg.slugType = uuidV7Slug
 	return sg
 }
 
@@ -128,8 +143,10 @@ func (sg *SlugGenerator) Generate(text string) string {
 	switch sg.slugType {
 	case textSlug:
 		result = sg.generateTextSlug(text)
-	case uuidSlug:
-		result = sg.generateUUID()
+	case uuidV4Slug:
+		result = sg.generateUUIDv4()
+	case uuidV7Slug:
+		result = sg.generateUUIDv7()
 	case nanoidSlug:
 		result = sg.generateNanoID()
 	case randomSlug:
@@ -205,13 +222,46 @@ func (sg *SlugGenerator) generateTextSlug(text string) string {
 	return slug
 }
 
-func (sg *SlugGenerator) generateUUID() string {
-	// Generate a simple UUID-like random string
+func (sg *SlugGenerator) generateUUIDv4() string {
+	// Generate a UUID v4 (random UUID)
 	b := make([]byte, 16)
 	_, err := rand.Read(b)
 	if err != nil {
 		return "error-generating-uuid"
 	}
+
+	// Set version (4) and variant bits according to RFC 4122
+	b[6] = (b[6] & 0x0f) | 0x40 // Version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // Variant 1
+
+	// Use RawURLEncoding to drop padding without replacements
+	uuid := strings.ToLower(base64.RawURLEncoding.EncodeToString(b))
+
+	if len(uuid) > sg.maxLength {
+		uuid = uuid[:sg.maxLength]
+	}
+
+	return uuid
+}
+
+func (sg *SlugGenerator) generateUUIDv7() string {
+	// Generate a UUID v7 (time-based UUID with random component)
+	b := make([]byte, 16)
+
+	// Get current Unix timestamp in milliseconds for the first 48 bits
+	timestamp := time.Now().UnixMilli()
+	binary.BigEndian.PutUint32(b[0:4], uint32(timestamp>>16))
+	binary.BigEndian.PutUint16(b[4:6], uint16(timestamp&0xFFFF))
+
+	// Fill the remaining bytes with random data
+	_, err := rand.Read(b[6:])
+	if err != nil {
+		return "error-generating-uuid"
+	}
+
+	// Set version (7) and variant bits according to RFC 4122
+	b[6] = (b[6] & 0x0f) | 0x70 // Version 7
+	b[8] = (b[8] & 0x3f) | 0x80 // Variant 1
 
 	// Use RawURLEncoding to drop padding without replacements
 	uuid := strings.ToLower(base64.RawURLEncoding.EncodeToString(b))

@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTextSlugGeneration(t *testing.T) {
@@ -115,15 +116,46 @@ func TestTextSlugGeneration(t *testing.T) {
 }
 
 func TestRandomSlugTypes(t *testing.T) {
-	t.Run("UUID slug", func(t *testing.T) {
+	t.Run("UUID v4 slug (legacy method)", func(t *testing.T) {
 		generator := New().UUID()
 		slug := generator.Generate("ignored text")
 		if len(slug) < 10 {
-			t.Errorf("UUID slug too short: %s", slug)
+			t.Errorf("UUID v4 slug too short: %s", slug)
 		}
 		urlSafePattern := regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 		if !urlSafePattern.MatchString(slug) {
-			t.Errorf("UUID slug is not URL-safe: %s", slug)
+			t.Errorf("UUID v4 slug is not URL-safe: %s", slug)
+		}
+	})
+
+	t.Run("UUID v4 slug", func(t *testing.T) {
+		generator := New().UUIDv4()
+		slug := generator.Generate("ignored text")
+		if len(slug) < 10 {
+			t.Errorf("UUID v4 slug too short: %s", slug)
+		}
+		urlSafePattern := regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+		if !urlSafePattern.MatchString(slug) {
+			t.Errorf("UUID v4 slug is not URL-safe: %s", slug)
+		}
+	})
+
+	t.Run("UUID v7 slug", func(t *testing.T) {
+		generator := New().UUIDv7()
+		slug := generator.Generate("ignored text")
+		if len(slug) < 10 {
+			t.Errorf("UUID v7 slug too short: %s", slug)
+		}
+		urlSafePattern := regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+		if !urlSafePattern.MatchString(slug) {
+			t.Errorf("UUID v7 slug is not URL-safe: %s", slug)
+		}
+
+		// Generate another UUID v7 after a short delay to verify timestamps are different
+		time.Sleep(10 * time.Millisecond)
+		slug2 := generator.Generate("ignored text")
+		if slug == slug2 {
+			t.Errorf("UUID v7 slugs should be different due to timestamp component, got: %s and %s", slug, slug2)
 		}
 	})
 
