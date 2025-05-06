@@ -240,8 +240,8 @@ func (c *Client) handleNick(params []string) {
 	newNick := params[0]
 
 	// Send notice about nickname handling
-	c.server.SendNotice(fmt.Sprintf("Client %s attempting to change nickname to: %s", c.nickname, newNick), 'n')
-
+	c.server.SendNickChangesNotice(fmt.Sprintf("Client %s attempting to change nickname to: %s", c.nickname, newNick))
+	
 	// Check if the nickname is valid
 	if !isValidNickname(newNick) {
 		c.sendNumeric(ERR_ERRONEUSNICKNAME, fmt.Sprintf("%s :Erroneous nickname", newNick))
@@ -289,7 +289,6 @@ func (c *Client) handleNick(params []string) {
 
 // handleUser handles a USER command
 func (c *Client) handleUser(params []string) {
-	log.Printf("[%s] DEBUG: handleUser called with params: %v", c.hostname, params)
 	if c.registered {
 		c.sendNumeric(462, ":You may not reregister")
 		return
@@ -330,9 +329,11 @@ func (c *Client) completeRegistration() {
 		}
 
 		// Password correct, continue with registration
-		log.Printf("[%s] DEBUG: Connection password accepted", c.hostname)
 	}
 
+	// Send registration confirmation notice to operators
+	c.server.SendStatsLinksNotice(fmt.Sprintf("Client registered: %s!%s@%s", c.nickname, c.username, c.hostname))
+	
 	c.registered = true
 
 	// Clear the registration deadline

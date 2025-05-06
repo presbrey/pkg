@@ -116,6 +116,9 @@ type Config struct {
 
 	// Protocol options
 	EnableProxyProtocol bool `env:"ENABLE_PROXY_PROTOCOL" envDefault:"false"`
+
+	// Connection limits
+	MaxConnections int `env:"MAX_CONNECTIONS" envDefault:"10000"` // Maximum number of simultaneous connections
 }
 
 // OperatorCredential represents an IRC operator's credentials
@@ -343,7 +346,23 @@ func (s *Server) acceptConnections() {
 		if s.stats.ConnectionCount > s.stats.MaxConnections {
 			s.stats.MaxConnections = s.stats.ConnectionCount
 		}
+
+		// Check if we reached the max connections limit
+		atConnectionLimit := s.stats.ConnectionCount >= s.config.MaxConnections
 		s.stats.Unlock()
+
+		if atConnectionLimit {
+			// Send an error message before disconnecting
+			writer := bufio.NewWriter(conn)
+			fmt.Fprintf(writer, "ERROR :Closing Link: %s [Server connection limit reached]\r\n", conn.RemoteAddr().String())
+			writer.Flush()
+			conn.Close()
+
+			// Log the rejection
+			log.Printf("Rejected connection from %s (server connection limit reached)", conn.RemoteAddr().String())
+			s.SendFloodsNotice(fmt.Sprintf("Connection from %s rejected (server connection limit reached)", conn.RemoteAddr().String()))
+			continue
+		}
 
 		remoteAddr := conn.RemoteAddr().String()
 		if s.config.EnableProxyProtocol {
@@ -702,7 +721,20 @@ func (s *Server) GetKlines() map[string]*BanEntry {
 
 // GetGlines returns the global G-line bans map
 func (s *Server) GetGlines() map[string]*BanEntry {
+	s.RLock()
+	defer s.RUnlock()
 	return s.glines
+}
+
+// GetMaxConnections returns the maximum allowed connections
+func (s *Server) GetMaxConnections() int {
+	return s.config.MaxConnections
+}
+
+// SetMaxConnections changes the maximum allowed connections
+func (s *Server) SetMaxConnections(limit int) {
+	s.config.MaxConnections = limit
+	s.SendExternalNotice(fmt.Sprintf("Maximum connections limit set to %d", limit))
 }
 
 // DisconnectBannedClients disconnects clients that match a ban
@@ -829,6 +861,11 @@ func (s *Server) SendStatsLinksNotice(message string) {
 	s.SendNotice(message, 'y')
 }
 
+// SendNickChangesNotice sends a notice about nickname changes (mode 'n')
+func (s *Server) SendNickChangesNotice(message string) {
+	s.SendNotice(message, 'n')
+}
+
 // acceptTLSConnections accepts incoming TLS client connections
 func (s *Server) acceptTLSConnections() {
 	for {
@@ -849,7 +886,23 @@ func (s *Server) acceptTLSConnections() {
 		if s.stats.ConnectionCount > s.stats.MaxConnections {
 			s.stats.MaxConnections = s.stats.ConnectionCount
 		}
+
+		// Check if we reached the max connections limit
+		atConnectionLimit := s.stats.ConnectionCount >= s.config.MaxConnections
 		s.stats.Unlock()
+
+		if atConnectionLimit {
+			// Send an error message before disconnecting
+			writer := bufio.NewWriter(conn)
+			fmt.Fprintf(writer, "ERROR :Closing Link: %s [Server connection limit reached]\r\n", conn.RemoteAddr().String())
+			writer.Flush()
+			conn.Close()
+
+			// Log the rejection
+			log.Printf("Rejected connection from %s (server connection limit reached)", conn.RemoteAddr().String())
+			s.SendFloodsNotice(fmt.Sprintf("Connection from %s rejected (server connection limit reached)", conn.RemoteAddr().String()))
+			continue
+		}
 
 		// Handle PROXY protocol if configured
 		remoteAddr := conn.RemoteAddr().String()
