@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/joho/godotenv/autoload"
 	"github.com/presbrey/pkg/irc"
 )
 
