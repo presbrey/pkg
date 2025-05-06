@@ -280,6 +280,8 @@ func (c *Client) handleStats(params []string) {
 			c.server.config.ServerName, len(c.server.clients)))
 		c.sendNumeric(213, fmt.Sprintf("C %s %d :Peak Connections",
 			c.server.config.ServerName, c.server.stats.MaxConnections))
+		c.sendNumeric(213, fmt.Sprintf("C %s %d :Maximum Connection Limit",
+			c.server.config.ServerName, c.server.config.MaxConnections))
 		c.sendNumeric(213, fmt.Sprintf("C %s %d :K-line Hits",
 			c.server.config.ServerName, c.server.stats.KlineHits))
 		c.sendNumeric(213, fmt.Sprintf("C %s %d :G-line Hits",
