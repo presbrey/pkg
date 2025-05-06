@@ -36,7 +36,7 @@ func (s *Server) StartAdminServer() error {
 
 	// Create HTTP server
 	s.httpServer = &http.Server{
-		Addr:    s.config.AdminBindAddr,
+		Addr:    s.GetConfig().AdminBindAddr,
 		Handler: s.authMiddleware(mux),
 	}
 
@@ -53,23 +53,24 @@ func (s *Server) StartAdminServer() error {
 // initOIDC initializes the OIDC provider and verifier
 func (s *Server) initOIDC() error {
 	ctx := context.Background()
+	config := s.GetConfig()
 
 	// Initialize OIDC provider
-	provider, err := oidc.NewProvider(ctx, s.config.OIDCIssuer)
+	provider, err := oidc.NewProvider(ctx, config.OIDCIssuer)
 	if err != nil {
 		return fmt.Errorf("failed to initialize OIDC provider: %w", err)
 	}
 
 	s.oidcProvider = provider
 	s.oidcVerifier = provider.Verifier(&oidc.Config{
-		ClientID: s.config.OIDCClientID,
+		ClientID: config.OIDCClientID,
 	})
 
 	// Set up OAuth2 config
 	s.oauth2Config = &oauth2.Config{
-		ClientID:     s.config.OIDCClientID,
-		ClientSecret: s.config.OIDCClientSecret,
-		RedirectURL:  s.config.OIDCRedirectURL,
+		ClientID:     config.OIDCClientID,
+		ClientSecret: config.OIDCClientSecret,
+		RedirectURL:  config.OIDCRedirectURL,
 		Endpoint:     provider.Endpoint(),
 		Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
 	}

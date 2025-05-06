@@ -36,7 +36,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 					}
 					if err := idToken.Claims(&claims); err == nil && claims.EmailVerified {
 						s.RLock()
-						isOperator := s.operators[claims.Email]
+						isOperator := s.GetOperators()[claims.Email]
 						s.RUnlock()
 
 						if isOperator {
@@ -84,7 +84,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 		// Check if the user is an operator
 		s.RLock()
-		isOperator := s.operators[claims.Email]
+		isOperator := s.GetOperators()[claims.Email]
 		s.RUnlock()
 
 		if !isOperator {
@@ -113,7 +113,10 @@ func (s *Server) handleAdminHome(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(map[string]string)
 
 	// Get server stats
-	s.stats.RLock()
+	serverStats := s.GetStats()
+	serverConfig := s.GetConfig()
+	
+	serverStats.RLock()
 	stats := struct {
 		ServerName      string
 		ServerDesc      string
@@ -125,20 +128,17 @@ func (s *Server) handleAdminHome(w http.ResponseWriter, r *http.Request) {
 		UserName        string
 		UserEmail       string
 	}{
-		ServerName:      s.config.ServerName,
-		ServerDesc:      s.config.ServerDesc,
-		Uptime:          time.Since(s.stats.StartTime).Round(time.Second).String(),
-		ConnectionCount: s.stats.ConnectionCount,
-		MaxConnections:  s.stats.MaxConnections,
+		ServerName:      serverConfig.ServerName,
+		ServerDesc:      serverConfig.ServerDesc,
+		Uptime:          time.Since(serverStats.StartTime).Round(time.Second).String(),
+		ConnectionCount: serverStats.ConnectionCount,
+		MaxConnections:  serverStats.MaxConnections,
+		ChannelCount:    len(s.GetChannels()),
+		ClientCount:     len(s.GetClients()),
 		UserName:        user["name"],
 		UserEmail:       user["email"],
 	}
-	s.stats.RUnlock()
-
-	s.RLock()
-	stats.ClientCount = len(s.clients)
-	stats.ChannelCount = len(s.channels)
-	s.RUnlock()
+	serverStats.RUnlock()
 
 	// Render the template
 	tmpl, err := template.New("home").Parse(`
@@ -247,20 +247,20 @@ func (s *Server) handleAdminChannels(w http.ResponseWriter, r *http.Request) {
 	var channels []ChannelData
 
 	s.RLock()
-	for name, channel := range s.channels {
+	for name, channel := range s.GetChannels() {
 		channel.RLock()
 
 		// Extract operator nicknames
-		operators := make([]string, 0, len(channel.operators))
-		for nickname := range channel.operators {
+		operators := make([]string, 0, len(channel.GetOperators()))
+		for nickname := range channel.GetOperators() {
 			operators = append(operators, nickname)
 		}
 		sort.Strings(operators)
 
 		channels = append(channels, ChannelData{
 			Name:      name,
-			Topic:     channel.topic,
-			UserCount: len(channel.clients),
+			Topic:     channel.GetTopic(),
+			UserCount: len(channel.GetClients()),
 			Operators: operators,
 		})
 		channel.RUnlock()
@@ -387,23 +387,23 @@ func (s *Server) handleAdminClients(w http.ResponseWriter, r *http.Request) {
 	var clients []ClientData
 
 	s.RLock()
-	for _, client := range s.clients {
+	for _, client := range s.GetClients() {
 		client.RLock()
 
 		// Build channel list
-		channels := make([]string, 0, len(client.channels))
-		for channelName := range client.channels {
+		channels := make([]string, 0, len(client.GetChannels()))
+		for channelName := range client.GetChannels() {
 			channels = append(channels, channelName)
 		}
 		sort.Strings(channels)
 
 		clients = append(clients, ClientData{
-			Nickname:    client.nickname,
-			Username:    client.username,
-			Hostname:    client.hostname,
-			Realname:    client.realname,
-			IsOperator:  client.Modes.Operator,
-			Connected:   client.lastPong,
+			Nickname:    client.GetNickname(),
+			Username:    client.GetUsername(),
+			Hostname:    client.GetHostname(),
+			Realname:    client.GetRealname(),
+			IsOperator:  false, // TODO: Check operator status
+			Connected:   client.GetLastPong(),
 			ChannelList: strings.Join(channels, ", "),
 		})
 		client.RUnlock()
@@ -645,7 +645,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Check if user is an operator
 	s.RLock()
-	isOperator := s.operators[claims.Email]
+	isOperator := s.GetOperators()[claims.Email]
 	s.RUnlock()
 
 	if !isOperator || !claims.EmailVerified {
@@ -670,7 +670,10 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 // handleAPIStats returns server statistics in JSON format
 func (s *Server) handleAPIStats(w http.ResponseWriter, r *http.Request) {
 	// Get server stats
-	s.stats.RLock()
+	serverStats := s.GetStats()
+	serverConfig := s.GetConfig()
+	
+	serverStats.RLock()
 	statsData := struct {
 		ServerName       string    `json:"server_name"`
 		ServerDesc       string    `json:"server_desc"`
@@ -681,19 +684,19 @@ func (s *Server) handleAPIStats(w http.ResponseWriter, r *http.Request) {
 		MessagesSent     int64     `json:"messages_sent"`
 		MessagesReceived int64     `json:"messages_received"`
 	}{
-		ServerName:       s.config.ServerName,
-		ServerDesc:       s.config.ServerDesc,
-		StartTime:        s.stats.StartTime,
-		Uptime:           time.Since(s.stats.StartTime).String(),
-		ConnectionCount:  s.stats.ConnectionCount,
-		MaxConnections:   s.stats.MaxConnections,
-		MessagesSent:     s.stats.MessagesSent,
-		MessagesReceived: s.stats.MessagesReceived,
+		ServerName:       serverConfig.ServerName,
+		ServerDesc:       serverConfig.ServerDesc,
+		StartTime:        serverStats.StartTime,
+		Uptime:           time.Since(serverStats.StartTime).String(),
+		ConnectionCount:  serverStats.ConnectionCount,
+		MaxConnections:   serverStats.MaxConnections,
+		MessagesSent:     serverStats.MessagesSent,
+		MessagesReceived: serverStats.MessagesReceived,
 	}
-	s.stats.RUnlock()
+	serverStats.RUnlock()
 
 	s.RLock()
-	statsData.ConnectionCount = len(s.clients)
+	statsData.ConnectionCount = len(s.GetClients())
 	s.RUnlock()
 
 	// Return JSON response

@@ -50,11 +50,11 @@ func (s *Server) handleAdminBans(w http.ResponseWriter, r *http.Request) {
 					}
 
 					s.Lock()
-					s.klines[mask] = ban
+					s.GetKlines()[mask] = ban
 					s.Unlock()
 
 					// Disconnect matching clients
-					s.disconnectBannedClients(ban)
+					s.DisconnectBannedClients(ban)
 				}
 
 			case "add_gline":
@@ -89,21 +89,21 @@ func (s *Server) handleAdminBans(w http.ResponseWriter, r *http.Request) {
 					}
 
 					s.Lock()
-					s.glines[mask] = ban
+					s.GetGlines()[mask] = ban
 					s.Unlock()
 
 					// Disconnect matching clients
-					s.disconnectBannedClients(ban)
+					s.DisconnectBannedClients(ban)
 
 					// Propagate to other servers
-					s.propagateGline(ban)
+					s.PropagateGline(ban)
 				}
 
 			case "remove_kline":
 				mask := r.Form.Get("mask")
 				if mask != "" {
 					s.Lock()
-					delete(s.klines, mask)
+					delete(s.GetKlines(), mask)
 					s.Unlock()
 				}
 
@@ -111,11 +111,11 @@ func (s *Server) handleAdminBans(w http.ResponseWriter, r *http.Request) {
 				mask := r.Form.Get("mask")
 				if mask != "" {
 					s.Lock()
-					delete(s.glines, mask)
+					delete(s.GetGlines(), mask)
 					s.Unlock()
 
 					// Propagate removal to other servers
-					s.propagateUngline(mask)
+					s.PropagateUngline(mask)
 				}
 			}
 
@@ -141,7 +141,7 @@ func (s *Server) handleAdminBans(w http.ResponseWriter, r *http.Request) {
 	s.RLock()
 
 	// Process K-lines
-	for mask, ban := range s.klines {
+	for mask, ban := range s.GetKlines() {
 		expiryStr := "Permanent"
 		isExpired := false
 
@@ -166,7 +166,7 @@ func (s *Server) handleAdminBans(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process G-lines
-	for mask, ban := range s.glines {
+	for mask, ban := range s.GetGlines() {
 		expiryStr := "Permanent"
 		isExpired := false
 
@@ -444,7 +444,7 @@ func (s *Server) setupAdminServer() error {
 
 	// Create HTTP server
 	s.httpServer = &http.Server{
-		Addr:    s.config.AdminBindAddr,
+		Addr:    s.GetConfig().AdminBindAddr,
 		Handler: s.authMiddleware(mux),
 	}
 
