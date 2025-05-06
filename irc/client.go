@@ -42,6 +42,7 @@ type UserMode struct {
 	Locops          bool `mode:"l" desc:"local oper notices"`
 	SpamBots        bool `mode:"m" desc:"spam-bot notices"`
 	Mute            bool `mode:"M" desc:"mute - cannot send to channels"`
+	NickChanges     bool `mode:"n" desc:"nick changes"`
 	HideChannels    bool `mode:"p" desc:"hide channels"`
 	Quiet           bool `mode:"q" desc:"hide WHOIS idle times"`
 	NoNonRegistered bool `mode:"R" desc:"block messages from unregistered nicks"`

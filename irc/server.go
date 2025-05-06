@@ -20,9 +20,17 @@ import (
 	"time"
 
 	"github.com/caarlos0/env/v6"
+	"github.com/presbrey/pkg/hooks"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+// NoticeContext holds information for notice hook callbacks
+type NoticeContext struct {
+	Server  *Server // The server instance
+	Message string  // The notice message
+	Mode    rune    // The notice mode character
+}
 
 // Server represents an IRC server instance
 type Server struct {
@@ -42,6 +50,9 @@ type Server struct {
 	tlsConfig     *tls.Config
 	shutdown      chan struct{}
 	stats         *ServerStats
+	
+	// Hook registries
+	NoticeHooks   *hooks.Registry[NoticeContext] // Registry for notice hooks
 }
 
 // BanEntry represents a K-line or G-line ban
@@ -165,6 +176,7 @@ func NewServer(ircBindAddr, tlsBindAddr, adminBindAddr, grpcBindAddr string) (*S
 		peers:         make(map[string]*grpc.ClientConn),
 		shutdown:      make(chan struct{}),
 		stats:         &ServerStats{StartTime: time.Now()},
+		NoticeHooks:   hooks.NewRegistry[NoticeContext](),
 	}
 
 	// Set up operator emails
@@ -771,6 +783,80 @@ func (c *Client) GetChannels() map[string]bool {
 // GetLastPong returns the client's last pong time
 func (c *Client) GetLastPong() time.Time {
 	return c.lastPong
+}
+
+// SendNotice sends a server notice to all clients that have the specified notice mode enabled
+func (s *Server) SendNotice(message string, modeChar rune) {
+	// Create the notice context
+	ctx := NoticeContext{
+		Server:  s,
+		Message: message,
+		Mode:    modeChar,
+	}
+
+	// Run any hooks registered for this notice type
+	s.NoticeHooks.RunAll(ctx)
+
+	// Broadcast to all clients with the notice mode enabled
+	s.RLock()
+	defer s.RUnlock()
+
+	for _, client := range s.clients {
+		// Check if the client has both the general notice mode and the specific mode enabled
+		if client.Modes.Notice && client.Modes.HasMode(modeChar) {
+			client.sendMessage("NOTICE", client.nickname, fmt.Sprintf("*** Notice -- %s", message))
+		}
+	}
+}
+
+// SendBotDetectNotice sends a notice about bot detection (mode 'b')
+func (s *Server) SendBotDetectNotice(message string) {
+	s.SendNotice(message, 'b')
+}
+
+// SendExternalNotice sends a notice about server connections/disconnections (mode 'e')
+func (s *Server) SendExternalNotice(message string) {
+	s.SendNotice(message, 'e')
+}
+
+// SendFloodsNotice sends a notice about I-line/full situations (mode 'f')
+func (s *Server) SendFloodsNotice(message string) {
+	s.SendNotice(message, 'f')
+}
+
+// SendGlobopsNotice sends a global operator notice (mode 'g')
+func (s *Server) SendGlobopsNotice(message string) {
+	s.SendNotice(message, 'g')
+}
+
+// SendRejectedClientNotice sends a notice about rejected clients (mode 'j')
+func (s *Server) SendRejectedClientNotice(message string) {
+	s.SendNotice(message, 'j')
+}
+
+// SendLocopsNotice sends a local operator notice (mode 'l')
+func (s *Server) SendLocopsNotice(message string) {
+	s.SendNotice(message, 'l')
+}
+
+// SendSpamBotsNotice sends a notice about spam bots (mode 'm')
+func (s *Server) SendSpamBotsNotice(message string) {
+	s.SendNotice(message, 'm')
+}
+
+// SendUnauthNotice sends a notice about unauthorized clients (mode 'u')
+func (s *Server) SendUnauthNotice(message string) {
+	s.SendNotice(message, 'u')
+}
+
+// SendWhoisParanoiaNotice sends a notice about WHOIS paranoia (mode 'W')
+func (s *Server) SendWhoisParanoiaNotice(message string) {
+	s.SendNotice(message, 'W')
+}
+
+// SendStatsLinksNotice sends a notice about stats/links (mode 'y')
+func (s *Server) SendStatsLinksNotice(message string) {
+	s.SendNotice(message, 'y')
 }
 
 // acceptTLSConnections accepts incoming TLS client connections
