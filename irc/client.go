@@ -7,194 +7,10 @@ import (
 	"log"
 	"net"
 	"net/textproto"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
 )
-
-// UserMode represents the user modes for an IRC client
-type UserMode struct {
-	Away       bool `mode:"a" desc:"away"`
-	Invisible  bool `mode:"i" desc:"invisible"`
-	Wallops    bool `mode:"w" desc:"receive wallops"`
-	Restricted bool `mode:"r" desc:"restricted"`
-	Operator   bool `mode:"o" desc:"operator"`
-	ServerOnly bool `mode:"O" desc:"server-only operator"`
-	Notice     bool `mode:"s" desc:"receive server notices"`
-
-	// Extended user modes
-	Admin           bool `mode:"A" desc:"server administrator"`
-	BotDetect       bool `mode:"b" desc:"bot-detection notices"`
-	Bot             bool `mode:"B" desc:"marked as a bot/drone"`
-	CommonChans     bool `mode:"c" desc:"only allow PRIVMSG from shared channels"`
-	CoAdmin         bool `mode:"C" desc:"service co-administrator"`
-	Deaf            bool `mode:"d" desc:"deaf - doesn't receive channel messages"`
-	External        bool `mode:"e" desc:"server connect/disconnect notices"`
-	Floods          bool `mode:"f" desc:"I-line/full notices"`
-	Globops         bool `mode:"g" desc:"global operator notices"`
-	StripBadWords   bool `mode:"G" desc:"profanity filter"`
-	Helper          bool `mode:"h" desc:"helper/service specialist flag"`
-	HideOper        bool `mode:"H" desc:"hide oper status in WHOIS"`
-	HideChans       bool `mode:"I" desc:"hide channel list"`
-	RejectedClient  bool `mode:"j" desc:"rejected client notices"`
-	Service         bool `mode:"k" desc:"protected service flag"`
-	Locops          bool `mode:"l" desc:"local oper notices"`
-	SpamBots        bool `mode:"m" desc:"spam-bot notices"`
-	Mute            bool `mode:"M" desc:"mute - cannot send to channels"`
-	NickChanges     bool `mode:"n" desc:"nick changes"`
-	HideChannels    bool `mode:"p" desc:"hide channels"`
-	Quiet           bool `mode:"q" desc:"hide WHOIS idle times"`
-	NoNonRegistered bool `mode:"R" desc:"block messages from unregistered nicks"`
-	ServiceProtect  bool `mode:"S" desc:"service protection"`
-	ZLined          bool `mode:"t" desc:"AustHex Z: line"`
-	WLined          bool `mode:"T" desc:"AustHex w: line"`
-	Unauth          bool `mode:"u" desc:"unauthorized client notices"`
-	HostHiding      bool `mode:"v" desc:"hide your host"`
-	WebTV           bool `mode:"V" desc:"connected via WebTV client"`
-	WhoisParanoia   bool `mode:"W" desc:"WHOIS-paranoia notices"`
-	HostHidingAlt   bool `mode:"x" desc:"host-masking"`
-	StatsLinks      bool `mode:"y" desc:"stats/links notices"`
-	Operwall        bool `mode:"z" desc:"oper WALLOPS"`
-	SecuredOnly     bool `mode:"Z" desc:"only allow SSL connections"`
-}
-
-// ParseModeString parses an IRC mode string (e.g., "+aw-i") and applies it to the UserMode struct
-func (m *UserMode) ParseModeString(modeString string) error {
-	if modeString == "" {
-		return nil
-	}
-
-	// Parse mode string character by character
-	var add bool = true // Default to adding modes
-
-	for _, ch := range modeString {
-		if ch == '+' {
-			add = true
-			continue
-		} else if ch == '-' {
-			add = false
-			continue
-		}
-
-		// Try to set the mode
-		if err := m.setModeByChar(rune(ch), add); err != nil {
-			// Just log a warning and continue if an unsupported mode is encountered
-			log.Printf("Warning: Unsupported mode '%c' in string '%s'", ch, modeString)
-		}
-	}
-
-	return nil
-}
-
-// setModeByChar sets a specific mode character on the UserMode struct
-func (m *UserMode) setModeByChar(mode rune, value bool) error {
-	val := reflect.ValueOf(m).Elem()
-	typ := val.Type()
-
-	// Look through all fields in the struct
-	for i := 0; i < val.NumField(); i++ {
-		field := val.Field(i)
-		fieldType := typ.Field(i)
-
-		modeTag := fieldType.Tag.Get("mode")
-
-		// If this field has the matching mode tag
-		if modeTag == string(mode) {
-			if field.Kind() == reflect.Bool {
-				field.SetBool(value)
-				return nil
-			}
-		}
-	}
-
-	return fmt.Errorf("no field found for mode %c", mode)
-}
-
-// String returns the compact mode string representation (e.g., "+awi")
-func (m *UserMode) String() string {
-	modeStr := "+"
-	val := reflect.ValueOf(m).Elem()
-	typ := val.Type()
-
-	// Process fields in the struct
-	for i := 0; i < val.NumField(); i++ {
-		field := val.Field(i)
-		if !field.Bool() {
-			continue // Skip if the mode is not set
-		}
-
-		fieldType := typ.Field(i)
-		modeTag := fieldType.Tag.Get("mode")
-
-		// Only include primary mode flags
-		if modeTag != "" {
-			modeStr += modeTag
-		}
-	}
-
-	// If only + was added, return empty string
-	if modeStr == "+" {
-		return ""
-	}
-
-	return modeStr
-}
-
-// GetModeDescription returns a human-readable description of all set modes
-func (m *UserMode) GetModeDescription() string {
-	var descriptions []string
-	val := reflect.ValueOf(m).Elem()
-	typ := val.Type()
-
-	// Process fields in the struct
-	for i := 0; i < val.NumField(); i++ {
-		field := val.Field(i)
-		if !field.Bool() {
-			continue // Skip if the mode is not set
-		}
-
-		fieldType := typ.Field(i)
-		modeTag := fieldType.Tag.Get("mode")
-		descTag := fieldType.Tag.Get("desc")
-
-		// Only include primary mode flags
-		if modeTag != "" && descTag != "" {
-			descriptions = append(descriptions, fmt.Sprintf("+%s (%s)", modeTag, descTag))
-		}
-	}
-
-	if len(descriptions) == 0 {
-		return "No modes set"
-	}
-
-	return strings.Join(descriptions, ", ")
-}
-
-// ApplyMode applies a single mode change (char with + or - prefix)
-func (m *UserMode) ApplyMode(modeChar rune, add bool) error {
-	return m.setModeByChar(modeChar, add)
-}
-
-// HasMode checks if a specific mode is set
-func (m *UserMode) HasMode(modeChar rune) bool {
-	val := reflect.ValueOf(m).Elem()
-	typ := val.Type()
-
-	for i := 0; i < val.NumField(); i++ {
-		field := val.Field(i)
-		fieldType := typ.Field(i)
-
-		modeTag := fieldType.Tag.Get("mode")
-
-		// If this field has the matching mode tag
-		if modeTag == string(modeChar) {
-			return field.Bool()
-		}
-	}
-
-	return false
-}
 
 // Client represents a connected IRC client
 type Client struct {
@@ -216,6 +32,10 @@ type Client struct {
 	awayMessage string // Message displayed when user is away
 
 	Modes UserMode // User modes
+
+	// Peering support
+	RemoteOrigin bool   // True if this client is from a remote server
+	RemoteServer string // The name of the remote server this client is from
 }
 
 // handleConnection handles a client connection
@@ -408,19 +228,19 @@ func (c *Client) handlePass(params []string) {
 
 	// Store the password
 	c.password = params[0]
-
-	log.Printf("[%s] DEBUG: Received PASS command", c.hostname)
 }
 
 // handleNick handles a NICK command
 func (c *Client) handleNick(params []string) {
-	log.Printf("[%s] DEBUG: handleNick called with params: %v", c.hostname, params)
 	if len(params) < 1 {
 		c.sendNumeric(ERR_NONICKNAMEGIVEN, ":No nickname given")
 		return
 	}
 
 	newNick := params[0]
+
+	// Send notice about nickname handling
+	c.server.SendNotice(fmt.Sprintf("Client %s attempting to change nickname to: %s", c.nickname, newNick), 'n')
 
 	// Check if the nickname is valid
 	if !isValidNickname(newNick) {
@@ -491,7 +311,9 @@ func (c *Client) handleUser(params []string) {
 
 // completeRegistration completes the client registration process
 func (c *Client) completeRegistration() {
-	log.Printf("[%s] DEBUG: completeRegistration called for client %s", c.hostname, c.nickname)
+	// Send notices to operators about client registration
+	c.server.SendExternalNotice(fmt.Sprintf("Client %s (%s@%s) completing registration", c.nickname, c.username, c.hostname))
+	c.server.SendLocopsNotice(fmt.Sprintf("Client %s (%s@%s) completing registration", c.nickname, c.username, c.hostname))
 
 	// Check if a connection password is required
 	if c.server.config.ConnectionPassword != "" {
@@ -1123,12 +945,11 @@ func (c *Client) handleKill(params []string) {
 	// Force the client to quit
 	targetClient.quit(fmt.Sprintf("Killed by %s: %s", c.nickname, reason))
 
-	// Log the kill action
-	log.Printf("[%s] KILL: %s disconnected by operator %s: %s",
-		c.hostname, targetNick, c.nickname, reason)
-
-	// Add additional logging for the test
-	log.Printf("DEBUG: handleKill immediate effect - targetClient connection state before force quit")
+	// Log the kill action and send notices to operators
+	c.server.SendGlobopsNotice(fmt.Sprintf("Client %s disconnected by operator %s: %s",
+		targetNick, c.nickname, reason))
+	c.server.SendLocopsNotice(fmt.Sprintf("Client %s disconnected by operator %s: %s",
+		targetNick, c.nickname, reason))
 }
 
 // quit handles client disconnection

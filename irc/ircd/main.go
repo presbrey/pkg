@@ -47,6 +47,12 @@ func main() {
 		// Wait a moment for the server to fully initialize
 		time.Sleep(2 * time.Second)
 
+		// // In server.go or main.go
+		// peeringManager := peering.NewManager(server)
+		// peeringManager.Register() // Registers all the hooks
+		// peeringManager.StartGRPCServer(server.config.GRPCBindAddr)
+		// peeringManager.ConnectToPeers(server.config.PeerAddresses)
+
 		err := server.ConnectToPeers()
 		if err != nil {
 			log.Printf("Warning: error connecting to peers: %v", err)

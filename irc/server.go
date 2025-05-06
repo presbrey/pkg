@@ -50,9 +50,9 @@ type Server struct {
 	tlsConfig     *tls.Config
 	shutdown      chan struct{}
 	stats         *ServerStats
-	
+
 	// Hook registries
-	NoticeHooks   *hooks.Registry[NoticeContext] // Registry for notice hooks
+	NoticeHooks *hooks.Registry[NoticeContext] // Registry for notice hooks
 }
 
 // BanEntry represents a K-line or G-line ban
@@ -711,7 +711,7 @@ func (s *Server) DisconnectBannedClients(ban *BanEntry) {
 	// and disconnect them with an appropriate message
 	s.RLock()
 	defer s.RUnlock()
-	
+
 	// This is a simple implementation - in a real server you would match
 	// the hostmask pattern against each client
 	for range s.clients {
@@ -733,16 +733,6 @@ func (s *Server) PropagateUngline(mask string) {
 
 // Channel accessor methods
 
-// GetName returns the channel's name
-func (c *Channel) GetName() string {
-	return c.name
-}
-
-// GetTopic returns the channel's topic
-func (c *Channel) GetTopic() string {
-	return c.topic
-}
-
 // GetClients returns the channel's clients map
 func (c *Channel) GetClients() map[string]*Client {
 	return c.clients
@@ -754,26 +744,6 @@ func (c *Channel) GetOperators() map[string]bool {
 }
 
 // Client accessor methods
-
-// GetNickname returns the client's nickname
-func (c *Client) GetNickname() string {
-	return c.nickname
-}
-
-// GetUsername returns the client's username
-func (c *Client) GetUsername() string {
-	return c.username
-}
-
-// GetHostname returns the client's hostname
-func (c *Client) GetHostname() string {
-	return c.hostname
-}
-
-// GetRealname returns the client's real name
-func (c *Client) GetRealname() string {
-	return c.realname
-}
 
 // GetChannels returns the client's joined channels
 func (c *Client) GetChannels() map[string]bool {
