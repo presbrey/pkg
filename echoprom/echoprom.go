@@ -4,13 +4,14 @@
 package echoprom
 
 import (
-	"context"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/presbrey/pkg/t"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -22,7 +23,7 @@ var (
 	// RequestDuration measures request latency
 	RequestDuration = promauto.With(Registry).NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "http_request_duration_seconds",
+			Name:    "method_code_seconds",
 			Help:    "HTTP request latency in seconds",
 			Buckets: prometheus.DefBuckets,
 		},
@@ -32,12 +33,20 @@ var (
 	// RequestsTotal counts total requests by status code and path
 	RequestsTotal = promauto.With(Registry).NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "http_requests_total",
+			Name: "method_code_total",
 			Help: "Total number of HTTP requests by status code",
 		},
 		[]string{"method", "code"},
 	)
 )
+
+func init() {
+	// Register the Go collector (collects metrics about the Go runtime)
+	Registry.MustRegister(collectors.NewGoCollector())
+
+	// Register the Process collector (collects metrics about the process)
+	Registry.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+}
 
 // Config holds configuration for the middleware
 type Config struct {
@@ -60,8 +69,8 @@ func DefaultConfig() Config {
 	}
 }
 
-// Middleware returns Echo middleware which records Prometheus metrics
-func Middleware() echo.MiddlewareFunc {
+// DefaultMiddleware returns Echo middleware which records Prometheus metrics
+func DefaultMiddleware() echo.MiddlewareFunc {
 	return MiddlewareWithConfig(DefaultConfig())
 }
 
@@ -72,11 +81,6 @@ func MiddlewareWithConfig(config Config) echo.MiddlewareFunc {
 		config.Skipper = DefaultConfig().Skipper
 	}
 
-	// Start metrics server
-	if config.MetricsPort != 0 {
-		go startMetricsServer(config)
-	}
-
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			if config.Skipper(c) {
@@ -85,7 +89,6 @@ func MiddlewareWithConfig(config Config) echo.MiddlewareFunc {
 
 			// Start timer
 			start := time.Now()
-			path := sanitizePath(c.Path())
 			method := c.Request().Method
 
 			// Execute the request
@@ -94,46 +97,33 @@ func MiddlewareWithConfig(config Config) echo.MiddlewareFunc {
 			// Record metrics
 			duration := time.Since(start).Seconds()
 			status := c.Response().Status
-			RequestDuration.WithLabelValues(path, method).Observe(duration)
-			RequestsTotal.WithLabelValues(path, method, strconv.Itoa(status)).Inc()
+			RequestDuration.WithLabelValues(method, strconv.Itoa(status)).Observe(duration)
+			RequestsTotal.WithLabelValues(method, strconv.Itoa(status)).Inc()
 
 			return err
 		}
 	}
 }
 
-// sanitizePath removes route parameters to avoid high cardinality
-func sanitizePath(path string) string {
-	// For actual implementation, you might want to replace parameters like :id with a placeholder
-	// This simple version just returns the path as-is
-	return path
-}
-
-// startMetricsServer starts a separate HTTP server to expose metrics
-func startMetricsServer(config Config) {
-	mux := http.NewServeMux()
-	mux.Handle(config.MetricsPath, promhttp.HandlerFor(
+// NewMetricsHandler returns a handler for Prometheus metrics
+func NewMetricsHandler(config Config) http.Handler {
+	return promhttp.HandlerFor(
 		Registry,
 		promhttp.HandlerOpts{
 			EnableOpenMetrics: true,
 		},
-	))
-
-	server := &http.Server{
-		Addr:    ":" + strconv.Itoa(config.MetricsPort),
-		Handler: mux,
-	}
-
-	// Start server in a goroutine
-	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			panic("Failed to start metrics server: " + err.Error())
-		}
-	}()
+	)
 }
 
-// ShutdownMetricsServer gracefully shuts down the metrics server
-func ShutdownMetricsServer(ctx context.Context) error {
-	server := &http.Server{Addr: ":7070"}
-	return server.Shutdown(ctx)
+// DefaultRoute registers the metrics endpoint
+func DefaultRoute(r t.EchoRouter) {
+	r.GET("/metrics", echo.WrapHandler(NewMetricsHandler(DefaultConfig())))
+}
+
+// DefaultStart creates a new Echo server with Prometheus metrics
+func DefaultStart(address string) error {
+	e := echo.New()
+	e.HideBanner = true
+	DefaultRoute(e)
+	return e.Start(address)
 }
