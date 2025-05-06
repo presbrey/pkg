@@ -98,6 +98,11 @@ type Config struct {
 	CertFile string `env:"CERT_FILE"`
 	KeyFile  string `env:"KEY_FILE"`
 
+	// Optionally save generated certificate and key
+	SaveGeneratedCert bool   `env:"SAVE_GENERATED_CERT" envDefault:"false"`
+	GeneratedCertPath string `env:"GENERATED_CERT_PATH" envDefault:"certs/server.crt"`
+	GeneratedKeyPath  string `env:"GENERATED_KEY_PATH" envDefault:"certs/server.key"`
+
 	// Protocol options
 	EnableProxyProtocol bool `env:"ENABLE_PROXY_PROTOCOL" envDefault:"false"`
 }
@@ -598,23 +603,27 @@ func (s *Server) StartTLSServer() error {
 		}
 
 		// Optionally save the generated certificate and key to files
-		certDir := "certs"
-		if err := os.MkdirAll(certDir, 0755); err == nil {
-			// Save certificate
-			certOut, err := os.Create(filepath.Join(certDir, "server.crt"))
-			if err == nil {
-				pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]})
-				certOut.Close()
-				log.Printf("Self-signed certificate saved to %s", filepath.Join(certDir, "server.crt"))
-			}
+		if s.config.SaveGeneratedCert {
+			certPath := s.config.GeneratedCertPath
+			keyPath := s.config.GeneratedKeyPath
+			certDir := filepath.Dir(certPath)
+			if err := os.MkdirAll(certDir, 0755); err == nil {
+				// Save certificate
+				certOut, err := os.Create(certPath)
+				if err == nil {
+					pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]})
+					certOut.Close()
+					log.Printf("Self-signed certificate saved to %s", certPath)
+				}
 
-			// Save private key
-			keyOut, err := os.OpenFile(filepath.Join(certDir, "server.key"), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-			if err == nil {
-				privateKey := cert.PrivateKey.(*rsa.PrivateKey)
-				pem.Encode(keyOut, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
-				keyOut.Close()
-				log.Printf("Private key saved to %s", filepath.Join(certDir, "server.key"))
+				// Save private key
+				keyOut, err := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+				if err == nil {
+					privateKey := cert.PrivateKey.(*rsa.PrivateKey)
+					pem.Encode(keyOut, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
+					keyOut.Close()
+					log.Printf("Private key saved to %s", keyPath)
+				}
 			}
 		}
 	}
