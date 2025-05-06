@@ -36,7 +36,7 @@ func (s *Server) StartAdminServer() error {
 
 	// Create HTTP server
 	s.httpServer = &http.Server{
-		Addr:    s.GetConfig().AdminBindAddr,
+		Addr:    s.Config.AdminBindAddr,
 		Handler: s.authMiddleware(mux),
 	}
 
@@ -53,7 +53,7 @@ func (s *Server) StartAdminServer() error {
 // initOIDC initializes the OIDC provider and verifier
 func (s *Server) initOIDC() error {
 	ctx := context.Background()
-	config := s.GetConfig()
+	config := s.Config
 
 	// Initialize OIDC provider
 	provider, err := oidc.NewProvider(ctx, config.OIDCIssuer)

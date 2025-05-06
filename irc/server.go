@@ -35,7 +35,8 @@ type NoticeContext struct {
 // Server represents an IRC server instance
 type Server struct {
 	sync.RWMutex
-	config        *Config
+	Config *Config
+
 	clients       map[string]*Client // nickname -> client
 	channels      map[string]*Channel
 	operators     map[string]bool            // email address -> operator status
@@ -85,6 +86,8 @@ type Channel struct {
 
 // Config represents server configuration using environment variables
 type Config struct {
+	Debug bool `env:"DEBUG" envDefault:"false"`
+
 	ServerName          string               `env:"SERVER_NAME" envDefault:"irc.example.com"`
 	ServerDesc          string               `env:"SERVER_DESC" envDefault:"IRC Server"`
 	NetworkName         string               `env:"NETWORK_NAME" envDefault:"IRCNet"`
@@ -168,7 +171,7 @@ func NewServer(ircBindAddr, tlsBindAddr, adminBindAddr, grpcBindAddr string) (*S
 	config.GRPCBindAddr = grpcBindAddr
 
 	s := &Server{
-		config:        config,
+		Config:        config,
 		clients:       make(map[string]*Client),
 		channels:      make(map[string]*Channel),
 		operators:     make(map[string]bool),
@@ -232,7 +235,7 @@ func (s *Server) StartIRCServer() error {
 	}
 
 	// Set up the IRC listener
-	s.listener, err = net.Listen("tcp", s.config.IRCBindAddr)
+	s.listener, err = net.Listen("tcp", s.Config.IRCBindAddr)
 	if err != nil {
 		return fmt.Errorf("failed to start IRC listener: %w", err)
 	}
@@ -279,13 +282,13 @@ func (s *Server) StopGRPCServer() error {
 // ConnectToPeers connects to peer servers after the server is already running
 func (s *Server) ConnectToPeers() error {
 	// Skip if no peer addresses are configured
-	if len(s.config.PeerAddresses) == 0 {
+	if len(s.Config.PeerAddresses) == 0 {
 		log.Println("No peer servers configured")
 		return nil
 	}
 
 	log.Println("Connecting to peer servers...")
-	for _, address := range s.config.PeerAddresses {
+	for _, address := range s.Config.PeerAddresses {
 		conn, err := grpc.Dial(address,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithBlock(),
@@ -348,7 +351,7 @@ func (s *Server) acceptConnections() {
 		}
 
 		// Check if we reached the max connections limit
-		atConnectionLimit := s.stats.ConnectionCount >= s.config.MaxConnections
+		atConnectionLimit := s.stats.ConnectionCount >= s.Config.MaxConnections
 		s.stats.Unlock()
 
 		if atConnectionLimit {
@@ -365,7 +368,7 @@ func (s *Server) acceptConnections() {
 		}
 
 		remoteAddr := conn.RemoteAddr().String()
-		if s.config.EnableProxyProtocol {
+		if s.Config.EnableProxyProtocol {
 			conn, remoteAddr = s.handleProxyProtocol(conn)
 		}
 
@@ -387,12 +390,13 @@ func (s *Server) acceptConnections() {
 		}
 
 		client := &Client{
-			conn:     conn,
-			server:   s,
-			channels: make(map[string]bool),
-			lastPong: time.Now(),
-			writer:   bufio.NewWriter(conn),
-			hostname: remoteAddr,
+			conn:         conn,
+			server:       s,
+			channels:     make(map[string]bool),
+			lastPong:     time.Now(),
+			writer:       bufio.NewWriter(conn),
+			hostname:     remoteAddr,
+			capabilities: NewClientCapabilities(),
 		}
 
 		go client.handleConnection()
@@ -558,19 +562,19 @@ func (s *Server) generateSelfSignedCert() (*tls.Certificate, error) {
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
-			Organization: []string{s.config.NetworkName},
-			CommonName:   s.config.ServerName,
+			Organization: []string{s.Config.NetworkName},
+			CommonName:   s.Config.ServerName,
 		},
 		NotBefore:             notBefore,
 		NotAfter:              notAfter,
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-		DNSNames:              []string{s.config.ServerName},
+		DNSNames:              []string{s.Config.ServerName},
 	}
 
 	// Add IP addresses to the certificate
-	if host, _, err := net.SplitHostPort(s.config.TLSBindAddr); err == nil {
+	if host, _, err := net.SplitHostPort(s.Config.TLSBindAddr); err == nil {
 		if ip := net.ParseIP(host); ip != nil {
 			template.IPAddresses = append(template.IPAddresses, ip)
 		}
@@ -601,7 +605,7 @@ func (s *Server) StartTLSServer() error {
 	}
 
 	// If no TLS bind address is specified, don't start TLS
-	if s.config.TLSBindAddr == "" {
+	if s.Config.TLSBindAddr == "" {
 		log.Println("TLS IRC Server not started (no bind address specified)")
 		return nil
 	}
@@ -610,9 +614,9 @@ func (s *Server) StartTLSServer() error {
 	var tlsConfig *tls.Config
 
 	// Check if certificate and key files are provided
-	if s.config.CertFile != "" && s.config.KeyFile != "" {
+	if s.Config.CertFile != "" && s.Config.KeyFile != "" {
 		// Load the certificate and key from files
-		cert, err := tls.LoadX509KeyPair(s.config.CertFile, s.config.KeyFile)
+		cert, err := tls.LoadX509KeyPair(s.Config.CertFile, s.Config.KeyFile)
 		if err != nil {
 			return fmt.Errorf("failed to load TLS certificate: %w", err)
 		}
@@ -620,7 +624,7 @@ func (s *Server) StartTLSServer() error {
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,
 		}
-		log.Printf("Using TLS certificate from %s and key from %s", s.config.CertFile, s.config.KeyFile)
+		log.Printf("Using TLS certificate from %s and key from %s", s.Config.CertFile, s.Config.KeyFile)
 	} else {
 		// Generate a self-signed certificate
 		log.Println("No TLS certificate provided, generating a self-signed certificate")
@@ -634,9 +638,9 @@ func (s *Server) StartTLSServer() error {
 		}
 
 		// Optionally save the generated certificate and key to files
-		if s.config.SaveGeneratedCert {
-			certPath := s.config.GeneratedCertPath
-			keyPath := s.config.GeneratedKeyPath
+		if s.Config.SaveGeneratedCert {
+			certPath := s.Config.GeneratedCertPath
+			keyPath := s.Config.GeneratedKeyPath
 			certDir := filepath.Dir(certPath)
 			if err := os.MkdirAll(certDir, 0755); err == nil {
 				// Save certificate
@@ -662,7 +666,7 @@ func (s *Server) StartTLSServer() error {
 	s.tlsConfig = tlsConfig
 
 	// Set up the TLS listener
-	s.tlsListener, err = tls.Listen("tcp", s.config.TLSBindAddr, tlsConfig)
+	s.tlsListener, err = tls.Listen("tcp", s.Config.TLSBindAddr, tlsConfig)
 	if err != nil {
 		return fmt.Errorf("failed to start TLS IRC listener: %w", err)
 	}
@@ -699,11 +703,6 @@ func (s *Server) GetStats() *ServerStats {
 	return s.stats
 }
 
-// GetConfig returns the server configuration
-func (s *Server) GetConfig() *Config {
-	return s.config
-}
-
 // GetClients returns the connected clients map
 func (s *Server) GetClients() map[string]*Client {
 	return s.clients
@@ -728,12 +727,12 @@ func (s *Server) GetGlines() map[string]*BanEntry {
 
 // GetMaxConnections returns the maximum allowed connections
 func (s *Server) GetMaxConnections() int {
-	return s.config.MaxConnections
+	return s.Config.MaxConnections
 }
 
 // SetMaxConnections changes the maximum allowed connections
 func (s *Server) SetMaxConnections(limit int) {
-	s.config.MaxConnections = limit
+	s.Config.MaxConnections = limit
 	s.SendExternalNotice(fmt.Sprintf("Maximum connections limit set to %d", limit))
 }
 
@@ -888,7 +887,7 @@ func (s *Server) acceptTLSConnections() {
 		}
 
 		// Check if we reached the max connections limit
-		atConnectionLimit := s.stats.ConnectionCount >= s.config.MaxConnections
+		atConnectionLimit := s.stats.ConnectionCount >= s.Config.MaxConnections
 		s.stats.Unlock()
 
 		if atConnectionLimit {
@@ -906,7 +905,7 @@ func (s *Server) acceptTLSConnections() {
 
 		// Handle PROXY protocol if configured
 		remoteAddr := conn.RemoteAddr().String()
-		if s.config.EnableProxyProtocol {
+		if s.Config.EnableProxyProtocol {
 			conn, remoteAddr = s.handleProxyProtocol(conn)
 		}
 
@@ -920,11 +919,12 @@ func (s *Server) acceptTLSConnections() {
 
 		// Create a new client and handle the connection
 		client := &Client{
-			conn:     conn,
-			server:   s,
-			channels: make(map[string]bool),
-			writer:   bufio.NewWriter(conn),
-			lastPong: time.Now(),
+			conn:         conn,
+			server:       s,
+			channels:     make(map[string]bool),
+			writer:       bufio.NewWriter(conn),
+			lastPong:     time.Now(),
+			capabilities: NewClientCapabilities(),
 		}
 
 		go client.handleConnection()

@@ -87,7 +87,7 @@ func (m *Manager) syncWithPeer(address string, conn *grpc.ClientConn) {
 
 	// Build the sync request
 	req := &pb.SyncRequest{
-		SenderServer: m.server.GetName(),
+		SenderServer: m.server.Config.ServerName,
 		Channels:     make([]*pb.ChannelInfo, 0),
 		Clients:      make([]*pb.ClientDetail, 0),
 	}
@@ -141,7 +141,7 @@ func (m *Manager) notifyPeersClientJoined(client *irc.Client) {
 		Hostname:   client.GetHostname(),
 		Realname:   client.GetRealname(),
 		IsOperator: client.IsOperator(),
-		ServerName: m.server.GetName(),
+		ServerName: m.server.Config.ServerName,
 	}
 
 	m.server.ForEachPeer(func(address string, conn *grpc.ClientConn) {
@@ -165,7 +165,7 @@ func (m *Manager) notifyPeersClientLeft(client *irc.Client) {
 		Hostname:   client.GetHostname(),
 		Realname:   client.GetRealname(),
 		IsOperator: client.IsOperator(),
-		ServerName: m.server.GetName(),
+		ServerName: m.server.Config.ServerName,
 	}
 
 	m.server.ForEachPeer(func(address string, conn *grpc.ClientConn) {
@@ -184,7 +184,7 @@ func (m *Manager) notifyPeersClientLeft(client *irc.Client) {
 // relayMessageToPeers relays a message to all connected peer servers
 func (m *Manager) relayMessageToPeers(sender *irc.Client, command string, params ...string) {
 	req := &pb.MessageRequest{
-		SenderServer: m.server.GetName(),
+		SenderServer: m.server.Config.ServerName,
 		OriginNick:   sender.GetNickname(),
 		OriginUser:   sender.GetUsername(),
 		OriginHost:   sender.GetHostname(),

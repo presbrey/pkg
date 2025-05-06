@@ -444,7 +444,7 @@ func (s *Server) setupAdminServer() error {
 
 	// Create HTTP server
 	s.httpServer = &http.Server{
-		Addr:    s.GetConfig().AdminBindAddr,
+		Addr:    s.Config.AdminBindAddr,
 		Handler: s.authMiddleware(mux),
 	}
 

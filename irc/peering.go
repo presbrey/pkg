@@ -26,9 +26,9 @@ func (s *Server) startGRPCServer() error {
 	pb.RegisterIRCPeerServer(s.peerServer, &peerServer{server: s})
 
 	// Start listening
-	lis, err := net.Listen("tcp", s.config.GRPCBindAddr)
+	lis, err := net.Listen("tcp", s.Config.GRPCBindAddr)
 	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", s.config.GRPCBindAddr, err)
+		return fmt.Errorf("failed to listen on %s: %w", s.Config.GRPCBindAddr, err)
 	}
 
 	// Start serving in a goroutine
@@ -47,7 +47,7 @@ func (s *Server) syncWithPeer(address string, conn *grpc.ClientConn) {
 
 	// Build the sync request
 	req := &pb.SyncRequest{
-		SenderServer: s.config.ServerName,
+		SenderServer: s.Config.ServerName,
 		Channels:     make([]*pb.ChannelInfo, 0),
 		Clients:      make([]*pb.ClientDetail, 0),
 	}

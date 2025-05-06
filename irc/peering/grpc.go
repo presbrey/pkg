@@ -14,7 +14,7 @@ func (s *PeerServer) RelayMessage(ctx context.Context, req *pb.MessageRequest) (
 	log.Printf("Received message relay from %s: %s %v", req.SenderServer, req.Command, req.Params)
 
 	// Check if this is a message we should handle
-	if req.SenderServer == s.manager.server.GetName() {
+	if req.SenderServer == s.manager.server.Config.ServerName {
 		// This is our own message that was relayed back, ignore it
 		return &pb.MessageResponse{Success: true}, nil
 	}
@@ -24,7 +24,7 @@ func (s *PeerServer) RelayMessage(ctx context.Context, req *pb.MessageRequest) (
 		RemoteOrigin: true,
 		RemoteServer: req.SenderServer,
 	}
-	
+
 	// Set client properties from the request
 	virtualClient.SetNickname(req.OriginNick)
 	virtualClient.SetUsername(req.OriginUser)
@@ -38,7 +38,7 @@ func (s *PeerServer) RelayMessage(ctx context.Context, req *pb.MessageRequest) (
 
 // SyncState implements the gRPC SyncState method
 func (s *PeerServer) SyncState(ctx context.Context, req *pb.SyncRequest) (*pb.SyncResponse, error) {
-	log.Printf("Received sync request from %s with %d channels and %d clients", 
+	log.Printf("Received sync request from %s with %d channels and %d clients",
 		req.SenderServer, len(req.Channels), len(req.Clients))
 
 	// Process channels from the sync request
@@ -67,13 +67,13 @@ func (s *PeerServer) SyncState(ctx context.Context, req *pb.SyncRequest) (*pb.Sy
 			RemoteOrigin: true,
 			RemoteServer: req.SenderServer,
 		}
-		
+
 		// Set client properties
 		virtualClient.SetNickname(clientDetail.Nickname)
 		virtualClient.SetUsername(clientDetail.Username)
 		virtualClient.SetHostname(clientDetail.Hostname)
 		virtualClient.SetRealname(clientDetail.Realname)
-		
+
 		if clientDetail.IsOperator {
 			virtualClient.SetOperator(true)
 		}
@@ -86,7 +86,7 @@ func (s *PeerServer) SyncState(ctx context.Context, req *pb.SyncRequest) (*pb.Sy
 			channel := s.manager.server.GetChannel(channelName)
 			if channel != nil {
 				channel.AddClient(virtualClient)
-				
+
 				// Check if client should be an operator in this channel
 				for _, op := range req.Channels {
 					if op.Name == channelName {
@@ -107,7 +107,7 @@ func (s *PeerServer) SyncState(ctx context.Context, req *pb.SyncRequest) (*pb.Sy
 
 // ClientJoined implements the gRPC ClientJoined method
 func (s *PeerServer) ClientJoined(ctx context.Context, req *pb.ClientInfo) (*pb.StatusResponse, error) {
-	log.Printf("Received client joined notification: %s@%s from %s", 
+	log.Printf("Received client joined notification: %s@%s from %s",
 		req.Nickname, req.Hostname, req.ServerName)
 
 	// Check if we already know about this client
@@ -122,13 +122,13 @@ func (s *PeerServer) ClientJoined(ctx context.Context, req *pb.ClientInfo) (*pb.
 		RemoteOrigin: true,
 		RemoteServer: req.ServerName,
 	}
-	
+
 	// Set client properties
 	virtualClient.SetNickname(req.Nickname)
 	virtualClient.SetUsername(req.Username)
 	virtualClient.SetHostname(req.Hostname)
 	virtualClient.SetRealname(req.Realname)
-	
+
 	if req.IsOperator {
 		virtualClient.SetOperator(true)
 	}
@@ -144,7 +144,7 @@ func (s *PeerServer) ClientJoined(ctx context.Context, req *pb.ClientInfo) (*pb.
 
 // ClientLeft implements the gRPC ClientLeft method
 func (s *PeerServer) ClientLeft(ctx context.Context, req *pb.ClientInfo) (*pb.StatusResponse, error) {
-	log.Printf("Received client left notification: %s from %s", 
+	log.Printf("Received client left notification: %s from %s",
 		req.Nickname, req.ServerName)
 
 	// Find the client

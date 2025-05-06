@@ -31,11 +31,6 @@ func (s *Server) ForEachPeer(fn func(address string, conn *grpc.ClientConn)) {
 	}
 }
 
-// GetName returns the server name
-func (s *Server) GetName() string {
-	return s.config.ServerName
-}
-
 // GetChannel returns a channel by name or nil if not found
 func (s *Server) GetChannel(name string) *Channel {
 	s.RLock()

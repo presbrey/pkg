@@ -135,7 +135,7 @@ func (c *Client) handleVersion(_ []string) {
 		return
 	}
 
-	serverName := c.server.config.ServerName
+	serverName := c.server.Config.ServerName
 	version := "GoIRC-1.0"
 	osInfo := fmt.Sprintf("%s %s [%s]", runtime.GOOS, runtime.GOARCH, os.Getenv("GOVERSION"))
 
@@ -149,10 +149,10 @@ func (c *Client) handleAdmin(_ []string) {
 		return
 	}
 
-	c.sendNumeric(256, fmt.Sprintf("%s :Administrative info", c.server.config.ServerName))
-	c.sendNumeric(257, fmt.Sprintf(":%s", c.server.config.ServerDesc))
+	c.sendNumeric(256, fmt.Sprintf("%s :Administrative info", c.server.Config.ServerName))
+	c.sendNumeric(257, fmt.Sprintf(":%s", c.server.Config.ServerDesc))
 	c.sendNumeric(258, ":Administrative contact at admin@example.com")
-	c.sendNumeric(259, fmt.Sprintf(":%s server", c.server.config.NetworkName))
+	c.sendNumeric(259, fmt.Sprintf(":%s server", c.server.Config.NetworkName))
 }
 
 // handleInfo handles an INFO command
@@ -162,11 +162,12 @@ func (c *Client) handleInfo(_ []string) {
 		return
 	}
 
-	c.sendNumeric(371, ":GoIRC Server Information:")
-	c.sendNumeric(371, ":This IRC server is powered by GoIRC.")
-	c.sendNumeric(371, ":Built with Go and configured with environment variables.")
-	c.sendNumeric(371, fmt.Sprintf(":Server started at %s", c.server.stats.StartTime.Format(time.RFC1123)))
-	c.sendNumeric(374, ":End of INFO list")
+	c.sendNumeric(371, ":goirc - A Go IRC server by Joe Developer")
+	c.sendNumeric(371, ":Copyright (c) 2024 Joe Developer")
+	c.sendNumeric(371, ":Running on Go 1.22.0")
+	
+	serverName := c.server.Config.ServerName
+	c.sendNumeric(374, fmt.Sprintf(":%s End of /INFO list", serverName))
 }
 
 // handleTime handles a TIME command
@@ -178,21 +179,18 @@ func (c *Client) handleTime(_ []string) {
 
 	now := time.Now()
 	c.sendNumeric(391, fmt.Sprintf("%s :%s",
-		c.server.config.ServerName, now.Format(time.RFC1123)))
+		c.server.Config.ServerName, now.Format(time.RFC1123)))
 }
 
 // handleMotd handles a MOTD command
-func (c *Client) handleMotd(_ []string) {
+func (c *Client) handleMotd(params []string) {
 	if !c.registered {
 		c.sendNumeric(451, ":You have not registered")
 		return
 	}
 
-	// In a real implementation, this would load from a file or database
-	c.sendNumeric(375, fmt.Sprintf(":- %s Message of the Day -", c.server.config.ServerName))
-	c.sendNumeric(372, fmt.Sprintf(":- Welcome to %s", c.server.config.ServerDesc))
-	c.sendNumeric(372, ":- This server is running GoIRC server software")
-	c.sendNumeric(372, ":- Enjoy your stay!")
+	c.sendNumeric(375, fmt.Sprintf(":- %s Message of the Day -", c.server.Config.ServerName))
+	c.sendNumeric(372, fmt.Sprintf(":- Welcome to %s", c.server.Config.ServerDesc))
 	c.sendNumeric(376, ":End of MOTD command")
 }
 
@@ -225,11 +223,11 @@ func (c *Client) handleStats(params []string) {
 	case "o": // Oper list
 		c.server.RLock()
 		for username := range c.server.opCredentials {
-			c.sendNumeric(243, fmt.Sprintf("O %s * %s", username, c.server.config.ServerName))
+			c.sendNumeric(243, fmt.Sprintf("O %s * %s", username, c.server.Config.ServerName))
 		}
 
 		for email := range c.server.operators {
-			c.sendNumeric(243, fmt.Sprintf("O %s * %s (OIDC)", email, c.server.config.ServerName))
+			c.sendNumeric(243, fmt.Sprintf("O %s * %s (OIDC)", email, c.server.Config.ServerName))
 		}
 		c.server.RUnlock()
 
@@ -271,21 +269,21 @@ func (c *Client) handleStats(params []string) {
 
 	case "m": // Command statistics
 		c.sendNumeric(212, fmt.Sprintf("M %s %d :Messages Received",
-			c.server.config.ServerName, c.server.stats.MessagesReceived))
+			c.server.Config.ServerName, c.server.stats.MessagesReceived))
 		c.sendNumeric(212, fmt.Sprintf("M %s %d :Messages Sent",
-			c.server.config.ServerName, c.server.stats.MessagesSent))
+			c.server.Config.ServerName, c.server.stats.MessagesSent))
 
 	case "c": // Connection statistics
 		c.sendNumeric(213, fmt.Sprintf("C %s %d :Current Connections",
-			c.server.config.ServerName, len(c.server.clients)))
+			c.server.Config.ServerName, len(c.server.clients)))
 		c.sendNumeric(213, fmt.Sprintf("C %s %d :Peak Connections",
-			c.server.config.ServerName, c.server.stats.MaxConnections))
+			c.server.Config.ServerName, c.server.stats.MaxConnections))
 		c.sendNumeric(213, fmt.Sprintf("C %s %d :Maximum Connection Limit",
-			c.server.config.ServerName, c.server.config.MaxConnections))
+			c.server.Config.ServerName, c.server.Config.MaxConnections))
 		c.sendNumeric(213, fmt.Sprintf("C %s %d :K-line Hits",
-			c.server.config.ServerName, c.server.stats.KlineHits))
+			c.server.Config.ServerName, c.server.stats.KlineHits))
 		c.sendNumeric(213, fmt.Sprintf("C %s %d :G-line Hits",
-			c.server.config.ServerName, c.server.stats.GlineHits))
+			c.server.Config.ServerName, c.server.stats.GlineHits))
 
 	default:
 		c.sendNumeric(219, fmt.Sprintf("%s :End of STATS report", flag))

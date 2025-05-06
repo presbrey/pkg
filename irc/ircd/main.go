@@ -18,6 +18,7 @@ func main() {
 	adminAddr := flag.String("admin", "127.0.0.1:8080", "Admin HTTP server bind address")
 	grpcAddr := flag.String("grpc", ":6668", "gRPC peering server bind address")
 	connectPeers := flag.Bool("connect-peers", false, "Connect to peers after startup")
+	debug := flag.Bool("debug", false, "Enable debug logging")
 	flag.Parse()
 
 	// Log startup configuration
@@ -26,12 +27,15 @@ func main() {
 	log.Printf("TLS IRC bind address: %s", *tlsAddr)
 	log.Printf("Admin bind address: %s", *adminAddr)
 	log.Printf("gRPC bind address: %s", *grpcAddr)
+	log.Printf("Connect to peers: %v", *connectPeers)
+	log.Printf("Debug logging: %v", *debug)
 
 	// Create a new IRC server with CLI flags
 	server, err := irc.NewServer(*ircAddr, *tlsAddr, *adminAddr, *grpcAddr)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
+	server.Config.Debug = *debug
 
 	// Start the server
 	log.Println("Starting IRC server...")

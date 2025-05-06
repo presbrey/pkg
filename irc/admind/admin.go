@@ -114,8 +114,6 @@ func (s *Server) handleAdminHome(w http.ResponseWriter, r *http.Request) {
 
 	// Get server stats
 	serverStats := s.GetStats()
-	serverConfig := s.GetConfig()
-	
 	serverStats.RLock()
 	stats := struct {
 		ServerName      string
@@ -128,8 +126,8 @@ func (s *Server) handleAdminHome(w http.ResponseWriter, r *http.Request) {
 		UserName        string
 		UserEmail       string
 	}{
-		ServerName:      serverConfig.ServerName,
-		ServerDesc:      serverConfig.ServerDesc,
+		ServerName:      s.Config.ServerName,
+		ServerDesc:      s.Config.ServerDesc,
 		Uptime:          time.Since(serverStats.StartTime).Round(time.Second).String(),
 		ConnectionCount: serverStats.ConnectionCount,
 		MaxConnections:  serverStats.MaxConnections,
@@ -671,8 +669,6 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAPIStats(w http.ResponseWriter, r *http.Request) {
 	// Get server stats
 	serverStats := s.GetStats()
-	serverConfig := s.GetConfig()
-	
 	serverStats.RLock()
 	statsData := struct {
 		ServerName       string    `json:"server_name"`
@@ -684,8 +680,8 @@ func (s *Server) handleAPIStats(w http.ResponseWriter, r *http.Request) {
 		MessagesSent     int64     `json:"messages_sent"`
 		MessagesReceived int64     `json:"messages_received"`
 	}{
-		ServerName:       serverConfig.ServerName,
-		ServerDesc:       serverConfig.ServerDesc,
+		ServerName:       s.Config.ServerName,
+		ServerDesc:       s.Config.ServerDesc,
 		StartTime:        serverStats.StartTime,
 		Uptime:           time.Since(serverStats.StartTime).String(),
 		ConnectionCount:  serverStats.ConnectionCount,

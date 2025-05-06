@@ -36,6 +36,8 @@ type Client struct {
 	// Peering support
 	RemoteOrigin bool   // True if this client is from a remote server
 	RemoteServer string // The name of the remote server this client is from
+
+	capabilities *ClientCapabilities // Tracks client capability negotiation and enabled capabilities
 }
 
 // handleConnection handles a client connection
@@ -125,6 +127,8 @@ func (c *Client) handleCommand(line string) {
 		c.handleNick(params)
 	case "USER":
 		c.handleUser(params)
+	case "CAP":
+		c.handleCAP(params)
 	case "JOIN":
 		c.handleJoin(params)
 	case "PART":
@@ -241,7 +245,7 @@ func (c *Client) handleNick(params []string) {
 
 	// Send notice about nickname handling
 	c.server.SendNickChangesNotice(fmt.Sprintf("Client %s attempting to change nickname to: %s", c.nickname, newNick))
-	
+
 	// Check if the nickname is valid
 	if !isValidNickname(newNick) {
 		c.sendNumeric(ERR_ERRONEUSNICKNAME, fmt.Sprintf("%s :Erroneous nickname", newNick))
@@ -283,7 +287,7 @@ func (c *Client) handleNick(params []string) {
 
 	// If this is the first time setting nick, check if we can complete registration
 	if !c.registered && c.username != "" {
-		c.completeRegistration()
+		c.tryCompleteRegistration()
 	}
 }
 
@@ -304,18 +308,19 @@ func (c *Client) handleUser(params []string) {
 
 	// If we already have a nickname, complete registration
 	if c.nickname != "" {
-		c.completeRegistration()
+		c.tryCompleteRegistration()
 	}
 }
 
 // completeRegistration completes the client registration process
 func (c *Client) completeRegistration() {
-	// Send notices to operators about client registration
-	c.server.SendExternalNotice(fmt.Sprintf("Client %s (%s@%s) completing registration", c.nickname, c.username, c.hostname))
-	c.server.SendLocopsNotice(fmt.Sprintf("Client %s (%s@%s) completing registration", c.nickname, c.username, c.hostname))
+	// Check if all required registration information has been provided
+	if c.nickname == "" || c.username == "" {
+		return
+	}
 
 	// Check if a connection password is required
-	if c.server.config.ConnectionPassword != "" {
+	if c.server.Config.ConnectionPassword != "" {
 		// If password is required but not provided, reject
 		if c.password == "" {
 			c.sendNumeric(ERR_PASSWDMISMATCH, ":Password required")
@@ -323,7 +328,7 @@ func (c *Client) completeRegistration() {
 		}
 
 		// If password is incorrect, reject
-		if c.password != c.server.config.ConnectionPassword {
+		if c.password != c.server.Config.ConnectionPassword {
 			c.sendNumeric(464, ":Password incorrect")
 			return
 		}
@@ -331,9 +336,14 @@ func (c *Client) completeRegistration() {
 		// Password correct, continue with registration
 	}
 
+	// If client is in CAP negotiation, wait for CAP END
+	if c.capabilities.Negotiating {
+		return
+	}
+
 	// Send registration confirmation notice to operators
 	c.server.SendStatsLinksNotice(fmt.Sprintf("Client registered: %s!%s@%s", c.nickname, c.username, c.hostname))
-	
+
 	c.registered = true
 
 	// Clear the registration deadline
@@ -341,16 +351,28 @@ func (c *Client) completeRegistration() {
 
 	// Send welcome messages
 	c.sendNumeric(RPL_WELCOME, fmt.Sprintf(":Welcome to the %s IRC Network %s!%s@%s",
-		c.server.config.NetworkName, c.nickname, c.username, c.hostname))
+		c.server.Config.NetworkName, c.nickname, c.username, c.hostname))
 	c.sendNumeric(RPL_YOURHOST, fmt.Sprintf(":Your host is %s, running version goirc-1.0",
-		c.server.config.ServerName))
+		c.server.Config.ServerName))
 	c.sendNumeric(RPL_CREATED, fmt.Sprintf(":This server was created %s", time.Now().Format(time.RFC1123)))
-	c.sendNumeric(RPL_MYINFO, fmt.Sprintf("%s goirc-1.0 o o", c.server.config.ServerName))
+	c.sendNumeric(RPL_MYINFO, fmt.Sprintf("%s goirc-1.0 o o", c.server.Config.ServerName))
 
 	// Send MOTD
-	c.sendNumeric(RPL_MOTDSTART, fmt.Sprintf(":- %s Message of the Day -", c.server.config.ServerName))
-	c.sendNumeric(RPL_MOTD, fmt.Sprintf(":- Welcome to %s", c.server.config.ServerDesc))
+	c.sendNumeric(RPL_MOTDSTART, fmt.Sprintf(":- %s Message of the Day -", c.server.Config.ServerName))
+	c.sendNumeric(RPL_MOTD, fmt.Sprintf(":- Welcome to %s", c.server.Config.ServerDesc))
 	c.sendNumeric(RPL_ENDOFMOTD, ":End of MOTD command")
+}
+
+// tryCompleteRegistration attempts to complete the registration process
+// This is called after NICK/USER commands and after CAP END
+func (c *Client) tryCompleteRegistration() {
+	// Skip if already registered
+	if c.registered {
+		return
+	}
+
+	// Complete registration if we have all the required information
+	c.completeRegistration()
 }
 
 // handlePart handles a PART command
@@ -706,7 +728,7 @@ func (c *Client) handleWho(params []string) {
 				}
 
 				c.sendNumeric(RPL_WHOREPLY, fmt.Sprintf("%s %s %s %s %s %s :0 %s",
-					mask, client.username, client.hostname, c.server.config.ServerName,
+					mask, client.username, client.hostname, c.server.Config.ServerName,
 					nick, flags, client.realname))
 			}
 			channel.RUnlock()
@@ -729,7 +751,7 @@ func (c *Client) handleWho(params []string) {
 				}
 
 				c.sendNumeric(RPL_WHOREPLY, fmt.Sprintf("%s %s %s %s %s %s :0 %s",
-					commonChannel, client.username, client.hostname, c.server.config.ServerName,
+					commonChannel, client.username, client.hostname, c.server.Config.ServerName,
 					nick, flags, client.realname))
 			}
 		}
@@ -761,6 +783,21 @@ func (c *Client) handleWhois(params []string) {
 		c.sendNumeric(401, fmt.Sprintf("%s :No such nick/channel", target))
 		c.sendNumeric(318, fmt.Sprintf("%s :End of WHOIS list", target))
 		return
+	}
+
+	targetClient.RLock()
+	isAway := targetClient.Modes.Away
+	awayMessage := targetClient.awayMessage
+	modeString := targetClient.Modes.String()
+	targetClient.RUnlock()
+
+	if isAway && awayMessage != "" {
+		c.sendNumeric(301, fmt.Sprintf("%s :%s", targetClient.nickname, awayMessage))
+	}
+
+	// Show user modes in WHOIS response
+	if modeString != "" {
+		c.sendNumeric(379, fmt.Sprintf("%s :is using modes %s", targetClient.nickname, modeString))
 	}
 
 	c.sendNumeric(311, fmt.Sprintf("%s %s %s * :%s",
@@ -795,19 +832,8 @@ func (c *Client) handleWhois(params []string) {
 		c.sendNumeric(319, fmt.Sprintf("%s :%s", targetClient.nickname, channels.String()))
 	}
 
-	// Check if target is away and include away message if so
-	targetClient.RLock()
-	isAway := targetClient.Modes.Away
-	awayMessage := targetClient.awayMessage
-	targetClient.RUnlock()
-
-	if isAway && awayMessage != "" {
-		c.sendNumeric(301, fmt.Sprintf("%s :%s", targetClient.nickname, awayMessage))
-	}
-	targetClient.RUnlock()
-
 	c.sendNumeric(312, fmt.Sprintf("%s %s :%s",
-		targetClient.nickname, c.server.config.ServerName, c.server.config.ServerDesc))
+		targetClient.nickname, c.server.Config.ServerName, c.server.Config.ServerDesc))
 
 	if targetClient.Modes.Operator {
 		c.sendNumeric(313, fmt.Sprintf("%s :is an IRC operator", targetClient.nickname))
@@ -1028,6 +1054,10 @@ func (c *Client) quit(reason string) {
 
 // sendRaw sends a raw message to the client
 func (c *Client) sendRaw(message string) {
+	if c.server.Config.Debug {
+		log.Printf("[%s] => %s", c.nickname, message)
+	}
+
 	c.writeLock.Lock()
 	defer c.writeLock.Unlock()
 
@@ -1042,7 +1072,7 @@ func (c *Client) sendMessage(command string, params ...string) {
 	var sb strings.Builder
 
 	sb.WriteString(":")
-	sb.WriteString(c.server.config.ServerName)
+	sb.WriteString(c.server.Config.ServerName)
 	sb.WriteString(" ")
 	sb.WriteString(command)
 
@@ -1065,7 +1095,7 @@ func (c *Client) sendNumeric(numeric int, message string) {
 	var sb strings.Builder
 
 	sb.WriteString(":")
-	sb.WriteString(c.server.config.ServerName)
+	sb.WriteString(c.server.Config.ServerName)
 	sb.WriteString(" ")
 	sb.WriteString(fmt.Sprintf("%03d", numeric))
 	sb.WriteString(" ")
