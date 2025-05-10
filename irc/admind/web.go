@@ -1,27 +1,31 @@
 package admind
 
 import (
+	"encoding/json"
 	"html/template"
 	"log"
 	"net/http"
 	"sort"
 	"time"
+
+	"github.com/labstack/echo/v4"
+	"github.com/presbrey/pkg/t"
 )
 
 // handleAdminBans renders the ban management page
-func (s *Server) handleAdminBans(w http.ResponseWriter, r *http.Request) {
-	user := r.Context().Value("user").(map[string]string)
+func (s *Server) handleAdminBans(c echo.Context) error {
+	user := c.Get("user").(map[string]string)
 
 	// Handle form submissions for adding/removing bans
-	if r.Method == http.MethodPost {
-		if err := r.ParseForm(); err == nil {
-			action := r.Form.Get("action")
+	if c.Request().Method == http.MethodPost {
+		if err := c.Request().ParseForm(); err == nil {
+			action := c.Request().Form.Get("action")
 
 			switch action {
 			case "add_kline":
-				mask := r.Form.Get("mask")
-				reason := r.Form.Get("reason")
-				duration := r.Form.Get("duration")
+				mask := c.Request().Form.Get("mask")
+				reason := c.Request().Form.Get("reason")
+				duration := c.Request().Form.Get("duration")
 
 				if mask != "" && reason != "" && isValidHostmask(mask) {
 					var banDuration time.Duration
@@ -58,9 +62,9 @@ func (s *Server) handleAdminBans(w http.ResponseWriter, r *http.Request) {
 				}
 
 			case "add_gline":
-				mask := r.Form.Get("mask")
-				reason := r.Form.Get("reason")
-				duration := r.Form.Get("duration")
+				mask := c.Request().Form.Get("mask")
+				reason := c.Request().Form.Get("reason")
+				duration := c.Request().Form.Get("duration")
 
 				if mask != "" && reason != "" && isValidHostmask(mask) {
 					var banDuration time.Duration
@@ -100,7 +104,7 @@ func (s *Server) handleAdminBans(w http.ResponseWriter, r *http.Request) {
 				}
 
 			case "remove_kline":
-				mask := r.Form.Get("mask")
+				mask := c.Request().Form.Get("mask")
 				if mask != "" {
 					s.Lock()
 					delete(s.GetKlines(), mask)
@@ -108,7 +112,7 @@ func (s *Server) handleAdminBans(w http.ResponseWriter, r *http.Request) {
 				}
 
 			case "remove_gline":
-				mask := r.Form.Get("mask")
+				mask := c.Request().Form.Get("mask")
 				if mask != "" {
 					s.Lock()
 					delete(s.GetGlines(), mask)
@@ -120,8 +124,7 @@ func (s *Server) handleAdminBans(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Redirect to avoid form resubmission
-			http.Redirect(w, r, "/bans", http.StatusSeeOther)
-			return
+			return c.Redirect(http.StatusSeeOther, "/bans")
 		}
 	}
 
@@ -419,41 +422,61 @@ func (s *Server) handleAdminBans(w http.ResponseWriter, r *http.Request) {
 </html>
 `)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+		return err
+	}
+	err = tmpl.ExecuteTemplate(c.Response().Writer, "admin", data)
+	if err != nil {
+		return err
 	}
 
-	w.Header().Set("Content-Type", "text/html")
-	tmpl.Execute(w, data)
+	return nil
+}
+
+// handleSendMessageToChannel handles requests to send a message to an IRC channel.
+func (s *Server) handleSendMessageToChannel(c echo.Context) error {
+	if c.Request().Method != http.MethodPost {
+		return echo.ErrMethodNotAllowed
+	}
+
+	var req struct {
+		Channel string `json:"channel"`
+		Message string `json:"message"`
+	}
+
+	decoder := json.NewDecoder(c.Request().Body)
+	if err := decoder.Decode(&req); err != nil {
+		return echo.ErrBadRequest
+	}
+	// Ensure r.Body is closed after handling the request, not immediately after decoding.
+	// defer r.Body.Close() // This should be at the end of the handler if we need to read more, or if other middleware might read it.
+
+	if req.Channel == "" || req.Message == "" {
+		return echo.ErrBadRequest
+	}
+
+	// Placeholder: s.RelayPrivmsgToChannel will be implemented on admind.Server
+	// It will be responsible for sending the message to the actual IRC server.
+	err := s.RelayPrivmsgToChannel(req.Channel, req.Message)
+	if err != nil {
+		log.Printf("Error sending message to channel %s: %v", req.Channel, err)
+		return err
+	}
+
+	return c.String(http.StatusOK, "Message sent successfully")
 }
 
 // setupAdminServer configures the admin server routes
-func (s *Server) setupAdminServer() error {
-	// Set up routes
-	mux := http.NewServeMux()
-
+func (s *Server) route(r t.EchoRouter) error {
 	// Add admin routes
-	mux.HandleFunc("/", s.handleAdminHome)
-	mux.HandleFunc("/stats", s.handleAdminStats)
-	mux.HandleFunc("/channels", s.handleAdminChannels)
-	mux.HandleFunc("/clients", s.handleAdminClients)
-	mux.HandleFunc("/bans", s.handleAdminBans)
-	mux.HandleFunc("/login", s.handleAdminLogin)
-	mux.HandleFunc("/callback", s.handleOIDCCallback)
-	mux.HandleFunc("/api/stats", s.handleAPIStats)
-
-	// Create HTTP server
-	s.httpServer = &http.Server{
-		Addr:    s.Config.AdminBindAddr,
-		Handler: s.authMiddleware(mux),
-	}
-
-	// Start HTTP server in a goroutine
-	go func() {
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("HTTP server error: %v", err)
-		}
-	}()
-
+	r.GET("/", s.handleAdminHome)
+	r.GET("/stats", s.handleAdminStats)
+	r.GET("/channels", s.handleAdminChannels)
+	r.GET("/clients", s.handleAdminClients)
+	r.GET("/bans", s.handleAdminBans)
+	r.GET("/login", s.handleAdminLogin)
+	r.GET("/callback", s.handleOIDCCallback)
+	r.GET("/api/stats", s.handleAPIStats)
+	r.POST("/api/send_message", s.handleSendMessageToChannel)
+	r.Use(s.authMiddleware)
 	return nil
 }

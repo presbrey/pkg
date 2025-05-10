@@ -1,34 +1,33 @@
 package admind
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"log"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/labstack/echo/v4"
 )
 
 // Admin HTTP server handlers
 
 // authMiddleware is a middleware that enforces OIDC authentication
-func (s *Server) authMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func (s *Server) authMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return echo.HandlerFunc(func(c echo.Context) error {
 		// Skip auth for login and callback endpoints
-		if r.URL.Path == "/login" || r.URL.Path == "/callback" {
-			next.ServeHTTP(w, r)
-			return
+		if c.Request().URL.Path == "/login" || c.Request().URL.Path == "/callback" {
+			return next(c)
 		}
 
 		// Skip auth for API endpoints with valid token
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			token := r.Header.Get("Authorization")
+		if strings.HasPrefix(c.Request().URL.Path, "/api/") {
+			token := c.Request().Header.Get("Authorization")
 			if token != "" && strings.HasPrefix(token, "Bearer ") {
 				// Verify the token
-				idToken, err := s.oidcVerifier.Verify(r.Context(), token[7:])
+				idToken, err := s.oidcVerifier.Verify(c.Request().Context(), token[7:])
 				if err == nil {
 					var claims struct {
 						Email         string `json:"email"`
@@ -41,34 +40,33 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 
 						if isOperator {
 							// Valid operator, proceed
-							next.ServeHTTP(w, r)
-							return
+							return next(c)
 						}
 					}
 				}
 			}
 
 			// Invalid token for API
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Unauthorized"})
-			return
+			c.Response().Header().Set("Content-Type", "application/json")
+			c.Response().WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(c.Response()).Encode(map[string]string{"error": "Unauthorized"})
+			return nil
 		}
 
 		// Check for session cookie
-		cookie, err := r.Cookie("irc_session")
+		cookie, err := c.Request().Cookie("irc_session")
 		if err != nil || cookie.Value == "" {
 			// No session, redirect to login
-			http.Redirect(w, r, "/login", http.StatusFound)
-			return
+			c.Redirect(http.StatusFound, "/login")
+			return nil
 		}
 
 		// Verify the session token
-		idToken, err := s.oidcVerifier.Verify(r.Context(), cookie.Value)
+		idToken, err := s.oidcVerifier.Verify(c.Request().Context(), cookie.Value)
 		if err != nil {
 			// Invalid session, redirect to login
-			http.Redirect(w, r, "/login", http.StatusFound)
-			return
+			c.Redirect(http.StatusFound, "/login")
+			return nil
 		}
 
 		// Extract and verify claims
@@ -78,8 +76,8 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			Name          string `json:"name"`
 		}
 		if err := idToken.Claims(&claims); err != nil || !claims.EmailVerified {
-			http.Redirect(w, r, "/login", http.StatusFound)
-			return
+			c.Redirect(http.StatusFound, "/login")
+			return nil
 		}
 
 		// Check if the user is an operator
@@ -88,29 +86,28 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		s.RUnlock()
 
 		if !isOperator {
-			http.Error(w, "Unauthorized: not an operator", http.StatusUnauthorized)
-			return
+			c.Error(echo.NewHTTPError(http.StatusUnauthorized, "Unauthorized: not an operator"))
+			return nil
 		}
 
 		// Add user info to request context
-		ctx := context.WithValue(r.Context(), "user", map[string]string{
+		c.Set("user", map[string]string{
 			"email": claims.Email,
 			"name":  claims.Name,
 		})
 
 		// User authenticated, proceed
-		next.ServeHTTP(w, r.WithContext(ctx))
+		return next(c)
 	})
 }
 
 // handleAdminHome renders the admin dashboard homepage
-func (s *Server) handleAdminHome(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
+func (s *Server) handleAdminHome(c echo.Context) error {
+	if c.Request().URL.Path != "/" {
+		return echo.ErrNotFound
 	}
 
-	user := r.Context().Value("user").(map[string]string)
+	user := c.Get("user").(map[string]string)
 
 	// Get server stats
 	serverStats := s.GetStats()
@@ -214,25 +211,25 @@ func (s *Server) handleAdminHome(w http.ResponseWriter, r *http.Request) {
 </html>
 `)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		log.Printf("Template error: %v", err)
-		return
+		return err
 	}
 
-	w.Header().Set("Content-Type", "text/html")
-	tmpl.Execute(w, stats)
+	c.Response().Header().Set("Content-Type", "text/html")
+	tmpl.Execute(c.Response(), stats)
+	return nil
 }
 
 // handleAdminStats renders the server statistics page
-func (s *Server) handleAdminStats(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAdminStats(c echo.Context) error {
 	// Similar to home but with more detailed statistics
 	// Implementation similar to handleAdminHome
-	fmt.Fprintf(w, "Detailed server statistics page")
+	fmt.Fprintf(c.Response(), "Detailed server statistics page")
+	return nil
 }
 
 // handleAdminChannels renders the channels overview page
-func (s *Server) handleAdminChannels(w http.ResponseWriter, r *http.Request) {
-	user := r.Context().Value("user").(map[string]string)
+func (s *Server) handleAdminChannels(c echo.Context) error {
+	user := c.Get("user").(map[string]string)
 
 	// Gather channel data
 	type ChannelData struct {
@@ -358,18 +355,17 @@ func (s *Server) handleAdminChannels(w http.ResponseWriter, r *http.Request) {
 </html>
 `)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		log.Printf("Template error: %v", err)
-		return
+		return err
 	}
 
-	w.Header().Set("Content-Type", "text/html")
-	tmpl.Execute(w, data)
+	c.Response().Header().Set("Content-Type", "text/html")
+	tmpl.Execute(c.Response(), data)
+	return nil
 }
 
 // handleAdminClients renders the clients overview page
-func (s *Server) handleAdminClients(w http.ResponseWriter, r *http.Request) {
-	user := r.Context().Value("user").(map[string]string)
+func (s *Server) handleAdminClients(c echo.Context) error {
+	user := c.Get("user").(map[string]string)
 
 	// Gather client data
 	type ClientData struct {
@@ -511,23 +507,22 @@ func (s *Server) handleAdminClients(w http.ResponseWriter, r *http.Request) {
 </html>
 `)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		log.Printf("Template error: %v", err)
-		return
+		return err
 	}
 
-	w.Header().Set("Content-Type", "text/html")
-	tmpl.Execute(w, data)
+	c.Response().Header().Set("Content-Type", "text/html")
+	tmpl.Execute(c.Response(), data)
+	return nil
 }
 
 // handleAdminLogin handles the login page and OIDC flow initiation
-func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
+func (s *Server) handleAdminLogin(c echo.Context) error {
+	if c.Request().Method == http.MethodPost {
 		// Start OIDC flow
 		state := generateRandomString(32)
 
 		// Store the state in a cookie
-		http.SetCookie(w, &http.Cookie{
+		http.SetCookie(c.Response(), &http.Cookie{
 			Name:     "oidc_state",
 			Value:    state,
 			MaxAge:   int(time.Hour.Seconds()),
@@ -538,8 +533,8 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 
 		// Redirect to OIDC provider
 		authURL := s.oauth2Config.AuthCodeURL(state)
-		http.Redirect(w, r, authURL, http.StatusFound)
-		return
+		http.Redirect(c.Response(), c.Request(), authURL, http.StatusFound)
+		return nil
 	}
 
 	// Render login page
@@ -574,32 +569,29 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 </html>
 `)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		log.Printf("Template error: %v", err)
-		return
+		return err
 	}
 
-	w.Header().Set("Content-Type", "text/html")
-	tmpl.Execute(w, nil)
+	c.Response().Header().Set("Content-Type", "text/html")
+	tmpl.Execute(c.Response(), nil)
+	return nil
 }
 
 // handleOIDCCallback handles the OIDC callback after authentication
-func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleOIDCCallback(c echo.Context) error {
 	// Verify state
-	stateCookie, err := r.Cookie("oidc_state")
+	stateCookie, err := c.Request().Cookie("oidc_state")
 	if err != nil {
-		http.Error(w, "Invalid state", http.StatusBadRequest)
-		return
+		return echo.ErrBadRequest
 	}
 
-	state := r.URL.Query().Get("state")
+	state := c.Request().URL.Query().Get("state")
 	if state != stateCookie.Value {
-		http.Error(w, "Invalid state", http.StatusBadRequest)
-		return
+		return echo.ErrBadRequest
 	}
 
 	// Clear state cookie
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(c.Response(), &http.Cookie{
 		Name:   "oidc_state",
 		Value:  "",
 		MaxAge: -1,
@@ -607,27 +599,22 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Exchange authorization code for token
-	code := r.URL.Query().Get("code")
-	oauth2Token, err := s.oauth2Config.Exchange(r.Context(), code)
+	code := c.Request().URL.Query().Get("code")
+	oauth2Token, err := s.oauth2Config.Exchange(c.Request().Context(), code)
 	if err != nil {
-		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
-		log.Printf("Token exchange error: %v", err)
-		return
+		return err
 	}
 
 	// Extract ID token
 	rawIDToken, ok := oauth2Token.Extra("id_token").(string)
 	if !ok {
-		http.Error(w, "No ID token in response", http.StatusInternalServerError)
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "No ID token in response")
 	}
 
 	// Verify ID token
-	idToken, err := s.oidcVerifier.Verify(r.Context(), rawIDToken)
+	idToken, err := s.oidcVerifier.Verify(c.Request().Context(), rawIDToken)
 	if err != nil {
-		http.Error(w, "Invalid ID token", http.StatusInternalServerError)
-		log.Printf("ID token verification error: %v", err)
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "Invalid ID token")
 	}
 
 	// Extract claims
@@ -636,9 +623,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		EmailVerified bool   `json:"email_verified"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
-		http.Error(w, "Failed to parse claims", http.StatusInternalServerError)
-		log.Printf("Claims parsing error: %v", err)
-		return
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to parse claims")
 	}
 
 	// Check if user is an operator
@@ -647,12 +632,11 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	s.RUnlock()
 
 	if !isOperator || !claims.EmailVerified {
-		http.Error(w, "Unauthorized: You are not a registered operator", http.StatusUnauthorized)
-		return
+		return echo.NewHTTPError(http.StatusUnauthorized, "Unauthorized: You are not a registered operator")
 	}
 
 	// Set session cookie
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(c.Response(), &http.Cookie{
 		Name:     "irc_session",
 		Value:    rawIDToken,
 		MaxAge:   int(time.Hour.Seconds()),
@@ -662,11 +646,12 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Redirect to dashboard
-	http.Redirect(w, r, "/", http.StatusFound)
+	http.Redirect(c.Response(), c.Request(), "/", http.StatusFound)
+	return nil
 }
 
 // handleAPIStats returns server statistics in JSON format
-func (s *Server) handleAPIStats(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAPIStats(c echo.Context) error {
 	// Get server stats
 	serverStats := s.GetStats()
 	serverStats.RLock()
@@ -696,8 +681,9 @@ func (s *Server) handleAPIStats(w http.ResponseWriter, r *http.Request) {
 	s.RUnlock()
 
 	// Return JSON response
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(statsData)
+	c.Response().Header().Set("Content-Type", "application/json")
+	json.NewEncoder(c.Response()).Encode(statsData)
+	return nil
 }
 
 // Helper function to generate a random string for state parameter

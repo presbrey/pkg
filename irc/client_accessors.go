@@ -93,3 +93,11 @@ func (c *Client) SetRemoteServer(serverName string) {
 	c.RemoteServer = serverName
 	c.RemoteOrigin = true
 }
+
+// SendRawMessage sends a raw message string to the client.
+// This is an exported wrapper around the unexported sendRaw method.
+// The underlying sendRaw method handles its own errors internally (e.g., by quitting the client).
+func (c *Client) SendRawMessage(message string) {
+	// sendRaw is defined in client.go and handles the actual sending logic.
+	c.sendRaw(message)
+}
