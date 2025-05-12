@@ -116,28 +116,23 @@ func Group(prefix string, m ...MiddlewareFunc) *echo.Group {
 // It uses a sync.Map to cache host groups, ensuring that different callers get the
 // same group when they pass the same host.
 func Host(host string, m ...MiddlewareFunc) *echo.Group {
-	// Check if we already have a group for this host
-	if group, ok := hostGroups.Load(host); ok {
-		// If middleware is provided, apply it to the existing group
-		if len(m) > 0 {
-			g := group.(*echo.Group)
-			g.Use(m...)
-		}
-		return group.(*echo.Group)
-	}
+	// Use LoadOrStore for atomic get-or-create operation
+	newGroup := defaultEcho.Host(host)
 
-	// Create a new group for this host
-	group := defaultEcho.Host(host)
-
-	// Apply middleware if provided
+	// Apply middleware to the new group if provided
 	if len(m) > 0 {
-		group.Use(m...)
+		newGroup.Use(m...)
 	}
 
-	// Store the group in the cache
-	hostGroups.Store(host, group)
+	// LoadOrStore atomically loads or stores and returns the existing or stored value
+	existingGroup, loaded := hostGroups.LoadOrStore(host, newGroup)
 
-	return group
+	// If we loaded an existing group and middleware was provided, apply it to the existing group
+	if loaded && len(m) > 0 {
+		existingGroup.(*echo.Group).Use(m...)
+	}
+
+	return existingGroup.(*echo.Group)
 }
 
 // Use applies middleware to the default group.
