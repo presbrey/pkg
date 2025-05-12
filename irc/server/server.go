@@ -201,6 +201,7 @@ func (s *Server) RunHooks(event string, params *HookParams) error {
 // registerDefaultHooks registers the default hooks
 func (s *Server) registerDefaultHooks() {
 	// Register default command handlers
+	s.RegisterHook("PASS", handlePass)
 	s.RegisterHook("NICK", handleNick)
 	s.RegisterHook("USER", handleUser)
 	s.RegisterHook("JOIN", handleJoin)

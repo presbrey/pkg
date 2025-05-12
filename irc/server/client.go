@@ -31,6 +31,8 @@ type Client struct {
 	IsOper      bool
 	mu          sync.RWMutex
 	quit        chan struct{}
+
+	PasswordProvided bool // Tracks if the client has provided the server password
 }
 
 // NewClient creates a new client
@@ -183,7 +185,7 @@ func (c *Client) Quit(message string) {
 	// Ensure the connection is properly closed
 	if c.Conn != nil {
 		c.Conn.SetReadDeadline(time.Now()) // Force any pending reads to fail immediately
-		c.Conn.Close()                      // Explicitly close the connection
+		c.Conn.Close()                     // Explicitly close the connection
 	}
 }
 

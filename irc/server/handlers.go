@@ -30,14 +30,14 @@ func handleNick(params *HookParams) error {
 
 	// Acquire the write lock before modifying client fields
 	client.mu.Lock()
-	
+
 	// Store the old nickname for notifications
 	oldNick := client.Nickname
 	wasRegistered := client.Registered
 
 	// Update the client's nickname
 	client.Nickname = newNick
-	
+
 	// Release the lock
 	client.mu.Unlock()
 
@@ -80,7 +80,22 @@ func handleUser(params *HookParams) error {
 
 	// Check if the client is now registered
 	if client.Nickname != "" {
+		// Check if server password is required but not provided
+		serverPassword := client.Server.GetConfig().Server.Password
+		if serverPassword != "" {
+			client.mu.RLock()
+			passwordProvided := client.PasswordProvided
+			client.mu.RUnlock()
+
+			if !passwordProvided {
+				client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_PASSWDMISMATCH), "*", "Password required")
+				return nil
+			}
+		}
+
+		client.mu.Lock()
 		client.Registered = true
+		client.mu.Unlock()
 		client.SendWelcome()
 	}
 
@@ -201,6 +216,40 @@ func handlePart(params *HookParams) error {
 		// Part the channel
 		client.PartChannel(channelName, reason)
 	}
+
+	return nil
+}
+
+// handlePass handles the PASS command
+func handlePass(params *HookParams) error {
+	client := params.Client
+	message := params.Message
+
+	// Check if the client provided a password
+	if len(message.Params) < 1 {
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NEEDMOREPARAMS), "*", "PASS", "Not enough parameters")
+		return nil
+	}
+
+	password := message.Params[0]
+	serverPassword := client.Server.GetConfig().Server.Password
+
+	// If the server requires a password, validate it
+	if serverPassword != "" && password != serverPassword {
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_PASSWDMISMATCH), "*", "Password incorrect")
+
+		// Note: In a real IRC server, we might disconnect the client here after an incorrect password
+		// but we'll just mark the password as not provided
+		client.mu.Lock()
+		client.PasswordProvided = false
+		client.mu.Unlock()
+		return nil
+	}
+
+	// Mark the password as provided
+	client.mu.Lock()
+	client.PasswordProvided = true
+	client.mu.Unlock()
 
 	return nil
 }
