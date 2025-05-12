@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	
+
 	"github.com/presbrey/pkg/irc"
 )
 
@@ -220,15 +220,15 @@ func handlePrivmsg(params *HookParams) error {
 			return nil
 		}
 
-		// Check if the client is on the channel
-		if !channel.IsMember(client) && channel.Modes.NoExternalMsgs {
-			client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_CANNOTSENDTOCHAN), client.Nickname, target, "Cannot send to channel")
-			return nil
-		}
-
-		// Check if the channel is moderated and the client is not an operator
-		if channel.Modes.Moderated && !client.IsOper {
-			client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_CANNOTSENDTOCHAN), client.Nickname, target, "Cannot send to channel (+m)")
+		// Check if the client can send messages to the channel based on their permissions
+		if !channel.CanSendToChannel(client) {
+			if !channel.IsMember(client) && channel.Modes.NoExternalMsgs {
+				client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_CANNOTSENDTOCHAN), client.Nickname, target, "Cannot send to channel")
+			} else if channel.Modes.Moderated {
+				client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_CANNOTSENDTOCHAN), client.Nickname, target, "Cannot send to channel (+m)")
+			} else {
+				client.SendMessage(client.Server.GetConfig().Server.Name, "404", client.Nickname, target, "Cannot send to channel")
+			}
 			return nil
 		}
 
@@ -308,8 +308,8 @@ func handleChannelMode(params *HookParams) error {
 		return nil
 	}
 
-	// Check if the client is an operator
-	if !client.IsOper && !client.Modes.HasMode('o') {
+	// Check if the client has permission to change channel modes
+	if !channel.CanChangeChannelModes(client) {
 		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_CHANOPRIVSNEEDED), client.Nickname, channelName, "You're not a channel operator")
 		return nil
 	}
@@ -706,13 +706,7 @@ func handleKick(params *HookParams) error {
 		return nil
 	}
 
-	// Check if the client is an operator
-	if !client.IsOper {
-		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_CHANOPRIVSNEEDED), client.Nickname, channelName, "You're not a channel operator")
-		return nil
-	}
-
-	// Get the target client
+	// Check if the client has permission to kick the target
 	targetClient := client.Server.GetClient(target)
 	if targetClient == nil {
 		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NOSUCHNICK), client.Nickname, target, "No such nick/channel")
@@ -722,6 +716,16 @@ func handleKick(params *HookParams) error {
 	// Check if the target is on the channel
 	if !channel.IsMember(targetClient) {
 		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_USERNOTINCHANNEL), client.Nickname, target, channelName, "They aren't on that channel")
+		return nil
+	}
+
+	// Check if the client has permission to kick the target
+	if !channel.CanKickUsers(client, targetClient) {
+		if !channel.IsHalfop(client) && !client.IsOper {
+			client.SendMessage(client.Server.GetConfig().Server.Name, "482", client.Nickname, channelName, "You're not a channel operator")
+		} else {
+			client.SendMessage(client.Server.GetConfig().Server.Name, "482", client.Nickname, channelName, "You don't have sufficient privileges to kick this user")
+		}
 		return nil
 	}
 
@@ -847,30 +851,30 @@ func handleKill(params *HookParams) error {
 	// First send the kill message to the target
 	killMessage := fmt.Sprintf("Killed by %s: %s", client.Nickname, reason)
 	targetClient.SendMessage(client.Server.GetConfig().Server.Name, "KILL", targetClient.Nickname, killMessage)
-	
+
 	// Add a small delay to ensure the message is delivered
 	time.Sleep(50 * time.Millisecond)
-	
+
 	// Directly manipulate the connection to ensure it gets closed properly
 	if targetClient.Conn != nil {
 		// Set read deadline to immediately expire to force any pending reads to fail
 		targetClient.Conn.SetReadDeadline(time.Now())
-		
+
 		// Explicitly close the connection
 		targetClient.Conn.Close()
 	}
-	
+
 	// *After* closing the connection, clean up the client resources
 	targetClient.Server.RemoveClient(targetClient)
-	
+
 	// Remove the client from all channels
 	for _, channel := range targetClient.Channels {
 		channel.RemoveMember(targetClient)
-		
+
 		// Notify members of the channel that the client has quit
 		channel.SendToAll(fmt.Sprintf(":%s!%s@%s QUIT :%s", targetClient.Nickname, targetClient.Username, targetClient.Hostname, killMessage), targetClient)
 	}
-	
+
 	// We don't call Quit() because we've manually handled its functionality to ensure proper order
 
 	return nil

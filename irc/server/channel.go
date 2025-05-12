@@ -388,13 +388,95 @@ func (c *Channel) IsInvited(client *Client) bool {
 	return false
 }
 
+// IsOperator checks if a client is an operator in the channel
+func (c *Channel) IsOperator(client *Client) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.Operators[client.Nickname] || c.IsAdmin(client) || c.IsOwner(client)
+}
+
+// IsVoice checks if a client has voice in the channel
+func (c *Channel) IsVoice(client *Client) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.Voices[client.Nickname] || c.IsOperator(client) || c.IsHalfop(client) || c.IsAdmin(client) || c.IsOwner(client)
+}
+
+// IsHalfop checks if a client is a half-operator in the channel
+func (c *Channel) IsHalfop(client *Client) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.Halfops[client.Nickname] || c.IsOperator(client) || c.IsAdmin(client) || c.IsOwner(client)
+}
+
+// IsAdmin checks if a client is an admin in the channel
+func (c *Channel) IsAdmin(client *Client) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.Admins[client.Nickname] || c.IsOwner(client)
+}
+
+// IsOwner checks if a client is an owner in the channel
+func (c *Channel) IsOwner(client *Client) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.Owners[client.Nickname]
+}
+
+// CanSendToChannel checks if a client can send messages to the channel
+func (c *Channel) CanSendToChannel(client *Client) bool {
+	// Channel member always allowed if channel isn't moderated
+	if !c.Modes.Moderated {
+		return c.IsMember(client) || !c.Modes.NoExternalMsgs
+	}
+
+	// If channel is moderated, only voiced+ users can speak
+	return c.IsVoice(client) || client.IsOper
+}
+
+// CanChangeChannelModes checks if a client can change channel modes
+func (c *Channel) CanChangeChannelModes(client *Client) bool {
+	return c.IsOperator(client) || client.IsOper
+}
+
+// CanKickUsers checks if a client can kick users from the channel
+func (c *Channel) CanKickUsers(client *Client, target *Client) bool {
+	// Basic permission check
+	if !c.IsHalfop(client) && !client.IsOper {
+		return false
+	}
+
+	// Additional hierarchy checks - can't kick someone with higher privileges
+	if c.IsOwner(target) && !c.IsOwner(client) && !client.IsOper {
+		return false
+	}
+
+	if c.IsAdmin(target) && !c.IsAdmin(client) && !c.IsOwner(client) && !client.IsOper {
+		return false
+	}
+
+	if c.IsOperator(target) && !c.IsOperator(client) && !c.IsAdmin(client) && !c.IsOwner(client) && !client.IsOper {
+		return false
+	}
+
+	return true
+}
+
 // Kick kicks a client from the channel
 func (c *Channel) Kick(client *Client, target *Client, reason string) {
-	// Send kick message to all members
+	// Remove the client from the channel
+	c.RemoveMember(target)
+
+	// Send the kick message to all members of the channel
 	c.SendToAll(fmt.Sprintf(":%s!%s@%s KICK %s %s :%s", client.Nickname, client.Username, client.Hostname, c.Name, target.Nickname, reason), nil)
 
-	// Remove the target from the channel
-	c.RemoveMember(target)
+	// Send the kick message to the target
+	target.SendRaw(fmt.Sprintf(":%s!%s@%s KICK %s %s :%s", client.Nickname, client.Username, client.Hostname, c.Name, target.Nickname, reason))
 
 	// Remove the channel from the target's channel list
 	target.mu.Lock()

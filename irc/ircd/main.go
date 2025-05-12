@@ -14,7 +14,7 @@ import (
 
 func main() {
 	// Parse command line flags
-	configPath := flag.String("config", "config.yaml", "Path to configuration file or URL")
+	configPath := flag.String("config", "https://raw.githubusercontent.com/presbrey/pkg/main/irc/config/example.yaml", "Path to configuration file or HTTP URL (http://, https://)")
 	flag.Parse()
 
 	// Load configuration
