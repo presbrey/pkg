@@ -249,13 +249,18 @@ func (s *Server) RemoveChannel(name string) {
 // GetClient gets a client by nickname
 func (s *Server) GetClient(nickname string) *Client {
 	// This requires iteration since we're looking up by nickname, not ID
-	// Create a slice to store the result
 	var result *Client
 
 	// Use Range to iterate through all clients
 	s.clients.Range(func(key, value interface{}) bool {
 		client := value.(*Client)
-		if client.Nickname == nickname {
+		
+		// Add locking when accessing the client's nickname
+		client.mu.RLock()
+		isMatch := client.Nickname == nickname
+		client.mu.RUnlock()
+		
+		if isMatch {
 			result = client
 			return false // Stop iteration
 		}

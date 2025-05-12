@@ -28,16 +28,24 @@ func handleNick(params *HookParams) error {
 		return nil
 	}
 
+	// Acquire the write lock before modifying client fields
+	client.mu.Lock()
+	
 	// Store the old nickname for notifications
 	oldNick := client.Nickname
 	wasRegistered := client.Registered
 
 	// Update the client's nickname
 	client.Nickname = newNick
+	
+	// Release the lock
+	client.mu.Unlock()
 
 	// If the client wasn't registered before, check if they are now
 	if !wasRegistered && client.Username != "" {
+		client.mu.Lock()
 		client.Registered = true
+		client.mu.Unlock()
 		client.SendWelcome()
 	} else if wasRegistered {
 		// Notify all channels the client is in about the nick change
