@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	
+	"github.com/presbrey/pkg/irc"
 )
 
 // handleNick handles the NICK command
@@ -13,7 +15,7 @@ func handleNick(params *HookParams) error {
 
 	// Check if the client provided a nickname
 	if len(message.Params) < 1 {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "431", "*", "No nickname given")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NONICKNAMEGIVEN), "*", "No nickname given")
 		return nil
 	}
 
@@ -22,7 +24,7 @@ func handleNick(params *HookParams) error {
 	// Check if the nickname is already in use
 	existingClient := client.Server.GetClient(newNick)
 	if existingClient != nil && existingClient.ID != client.ID {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "433", "*", newNick, "Nickname is already in use")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NICKNAMEINUSE), "*", newNick, "Nickname is already in use")
 		return nil
 	}
 
@@ -54,13 +56,13 @@ func handleUser(params *HookParams) error {
 
 	// Check if the client provided enough parameters
 	if len(message.Params) < 4 {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "461", "*", "USER", "Not enough parameters")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NEEDMOREPARAMS), "*", "USER", "Not enough parameters")
 		return nil
 	}
 
 	// Check if the client is already registered
 	if client.Registered {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "462", client.Nickname, "You may not reregister")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_ALREADYREGISTRED), client.Nickname, "You may not reregister")
 		return nil
 	}
 
@@ -84,7 +86,7 @@ func handleJoin(params *HookParams) error {
 
 	// Check if the client provided a channel
 	if len(message.Params) < 1 {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "461", client.Nickname, "JOIN", "Not enough parameters")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NEEDMOREPARAMS), client.Nickname, "JOIN", "Not enough parameters")
 		return nil
 	}
 
@@ -101,7 +103,7 @@ func handleJoin(params *HookParams) error {
 	for i, channelName := range channels {
 		// Validate channel name
 		if !strings.HasPrefix(channelName, "#") {
-			client.SendMessage(client.Server.GetConfig().Server.Name, "403", client.Nickname, channelName, "No such channel")
+			client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NOSUCHCHANNEL), client.Nickname, channelName, "No such channel")
 			continue
 		}
 
@@ -124,25 +126,25 @@ func handleJoin(params *HookParams) error {
 
 		// Check if the channel has a key
 		if channel.Modes.Key != "" && channel.Modes.Key != key {
-			client.SendMessage(client.Server.GetConfig().Server.Name, "475", client.Nickname, channelName, "Cannot join channel (+k) - bad key")
+			client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_BADCHANNELKEY), client.Nickname, channelName, "Cannot join channel (+k) - bad key")
 			continue
 		}
 
 		// Check if the channel is invite-only
 		if channel.Modes.InviteOnly && !channel.IsInvited(client) {
-			client.SendMessage(client.Server.GetConfig().Server.Name, "473", client.Nickname, channelName, "Cannot join channel (+i) - you must be invited")
+			client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_INVITEONLYCHAN), client.Nickname, channelName, "Cannot join channel (+i) - you must be invited")
 			continue
 		}
 
 		// Check if the user is banned
 		if channel.IsBanned(client) {
-			client.SendMessage(client.Server.GetConfig().Server.Name, "474", client.Nickname, channelName, "Cannot join channel (+b) - you are banned")
+			client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_BANNEDFROMCHAN), client.Nickname, channelName, "Cannot join channel (+b) - you are banned")
 			continue
 		}
 
 		// Check if the channel is full
 		if channel.Modes.UserLimit > 0 && channel.MemberCount() >= channel.Modes.UserLimit {
-			client.SendMessage(client.Server.GetConfig().Server.Name, "471", client.Nickname, channelName, "Cannot join channel (+l) - channel is full")
+			client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_CHANNELISFULL), client.Nickname, channelName, "Cannot join channel (+l) - channel is full")
 			continue
 		}
 
@@ -160,7 +162,7 @@ func handlePart(params *HookParams) error {
 
 	// Check if the client provided a channel
 	if len(message.Params) < 1 {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "461", client.Nickname, "PART", "Not enough parameters")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NEEDMOREPARAMS), client.Nickname, "PART", "Not enough parameters")
 		return nil
 	}
 
@@ -178,13 +180,13 @@ func handlePart(params *HookParams) error {
 		// Get the channel
 		channel := client.Server.GetChannel(channelName)
 		if channel == nil {
-			client.SendMessage(client.Server.GetConfig().Server.Name, "403", client.Nickname, channelName, "No such channel")
+			client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NOSUCHCHANNEL), client.Nickname, channelName, "No such channel")
 			continue
 		}
 
 		// Check if the client is on the channel
 		if !channel.IsMember(client) {
-			client.SendMessage(client.Server.GetConfig().Server.Name, "442", client.Nickname, channelName, "You're not on that channel")
+			client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NOTONCHANNEL), client.Nickname, channelName, "You're not on that channel")
 			continue
 		}
 
@@ -202,7 +204,7 @@ func handlePrivmsg(params *HookParams) error {
 
 	// Check if the client provided a target and a message
 	if len(message.Params) < 2 {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "461", client.Nickname, "PRIVMSG", "Not enough parameters")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NEEDMOREPARAMS), client.Nickname, "PRIVMSG", "Not enough parameters")
 		return nil
 	}
 
@@ -214,19 +216,19 @@ func handlePrivmsg(params *HookParams) error {
 		// Get the channel
 		channel := client.Server.GetChannel(target)
 		if channel == nil {
-			client.SendMessage(client.Server.GetConfig().Server.Name, "401", client.Nickname, target, "No such nick/channel")
+			client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NOSUCHNICK), client.Nickname, target, "No such nick/channel")
 			return nil
 		}
 
 		// Check if the client is on the channel
 		if !channel.IsMember(client) && channel.Modes.NoExternalMsgs {
-			client.SendMessage(client.Server.GetConfig().Server.Name, "404", client.Nickname, target, "Cannot send to channel")
+			client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_CANNOTSENDTOCHAN), client.Nickname, target, "Cannot send to channel")
 			return nil
 		}
 
 		// Check if the channel is moderated and the client is not an operator
 		if channel.Modes.Moderated && !client.IsOper {
-			client.SendMessage(client.Server.GetConfig().Server.Name, "404", client.Nickname, target, "Cannot send to channel (+m)")
+			client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_CANNOTSENDTOCHAN), client.Nickname, target, "Cannot send to channel (+m)")
 			return nil
 		}
 
@@ -236,7 +238,7 @@ func handlePrivmsg(params *HookParams) error {
 		// Get the target client
 		targetClient := client.Server.GetClient(target)
 		if targetClient == nil {
-			client.SendMessage(client.Server.GetConfig().Server.Name, "401", client.Nickname, target, "No such nick/channel")
+			client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NOSUCHNICK), client.Nickname, target, "No such nick/channel")
 			return nil
 		}
 
@@ -271,7 +273,7 @@ func handleMode(params *HookParams) error {
 
 	// Check if the client provided a target
 	if len(message.Params) < 1 {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "461", client.Nickname, "MODE", "Not enough parameters")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NEEDMOREPARAMS), client.Nickname, "MODE", "Not enough parameters")
 		return nil
 	}
 
@@ -296,19 +298,19 @@ func handleChannelMode(params *HookParams) error {
 	// Get the channel
 	channel := client.Server.GetChannel(channelName)
 	if channel == nil {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "403", client.Nickname, channelName, "No such channel")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NOSUCHCHANNEL), client.Nickname, channelName, "No such channel")
 		return nil
 	}
 
 	// If no modes are specified, show the current modes
 	if len(message.Params) < 2 {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "324", client.Nickname, channelName, channel.GetModeString())
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_CHANNELMODEIS), client.Nickname, channelName, channel.GetModeString())
 		return nil
 	}
 
 	// Check if the client is an operator
 	if !client.IsOper && !client.Modes.HasMode('o') {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "482", client.Nickname, channelName, "You're not a channel operator")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_CHANOPRIVSNEEDED), client.Nickname, channelName, "You're not a channel operator")
 		return nil
 	}
 
@@ -333,9 +335,9 @@ func handleChannelMode(params *HookParams) error {
 			if len(message.Params) <= paramIndex {
 				// Show the ban list
 				for _, ban := range channel.BanList {
-					client.SendMessage(client.Server.GetConfig().Server.Name, "367", client.Nickname, channelName, ban, "", "0")
+					client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_BANLIST), client.Nickname, channelName, ban, "", "0")
 				}
-				client.SendMessage(client.Server.GetConfig().Server.Name, "368", client.Nickname, channelName, "End of channel ban list")
+				client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_ENDOFBANLIST), client.Nickname, channelName, "End of channel ban list")
 				continue
 			}
 			mask := message.Params[paramIndex]
@@ -355,7 +357,7 @@ func handleChannelMode(params *HookParams) error {
 		case 'k': // Channel key
 			if modeSet {
 				if len(message.Params) <= paramIndex {
-					client.SendMessage(client.Server.GetConfig().Server.Name, "461", client.Nickname, "MODE", "Not enough parameters")
+					client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NEEDMOREPARAMS), client.Nickname, "MODE", "Not enough parameters")
 					continue
 				}
 				key := message.Params[paramIndex]
@@ -369,7 +371,7 @@ func handleChannelMode(params *HookParams) error {
 		case 'l': // User limit
 			if modeSet {
 				if len(message.Params) <= paramIndex {
-					client.SendMessage(client.Server.GetConfig().Server.Name, "461", client.Nickname, "MODE", "Not enough parameters")
+					client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NEEDMOREPARAMS), client.Nickname, "MODE", "Not enough parameters")
 					continue
 				}
 				limit := message.Params[paramIndex]
@@ -404,13 +406,13 @@ func handleUserMode(params *HookParams) error {
 
 	// Check if the target is the client
 	if target != client.Nickname {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "502", client.Nickname, "Can't change mode for other users")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_USERSDONTMATCH), client.Nickname, "Can't change mode for other users")
 		return nil
 	}
 
 	// If no modes are specified, show the current modes
 	if len(message.Params) < 2 {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "221", client.Nickname, client.Modes.GetModeString())
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_UMODEIS), client.Nickname, client.Modes.GetModeString())
 		return nil
 	}
 
@@ -452,7 +454,7 @@ func handlePing(params *HookParams) error {
 
 	// Check if the client provided a server
 	if len(message.Params) < 1 {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "461", client.Nickname, "PING", "Not enough parameters")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NEEDMOREPARAMS), client.Nickname, "PING", "Not enough parameters")
 		return nil
 	}
 
@@ -476,7 +478,7 @@ func handleWho(params *HookParams) error {
 
 	// Check if the client provided a mask
 	if len(message.Params) < 1 {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "461", client.Nickname, "WHO", "Not enough parameters")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NEEDMOREPARAMS), client.Nickname, "WHO", "Not enough parameters")
 		return nil
 	}
 
@@ -491,7 +493,7 @@ func handleWho(params *HookParams) error {
 				if member.IsOper {
 					flags += "*"
 				}
-				client.SendMessage(client.Server.GetConfig().Server.Name, "352", client.Nickname, mask, member.Username, member.Hostname, client.Server.GetConfig().Server.Name, member.Nickname, flags, fmt.Sprintf("0 %s", member.Realname))
+				client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_WHOREPLY), client.Nickname, mask, member.Username, member.Hostname, client.Server.GetConfig().Server.Name, member.Nickname, flags, fmt.Sprintf("0 %s", member.Realname))
 			}
 		}
 	} else {
@@ -502,11 +504,11 @@ func handleWho(params *HookParams) error {
 			if target.IsOper {
 				flags += "*"
 			}
-			client.SendMessage(client.Server.GetConfig().Server.Name, "352", client.Nickname, "*", target.Username, target.Hostname, client.Server.GetConfig().Server.Name, target.Nickname, flags, fmt.Sprintf("0 %s", target.Realname))
+			client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_WHOREPLY), client.Nickname, "*", target.Username, target.Hostname, client.Server.GetConfig().Server.Name, target.Nickname, flags, fmt.Sprintf("0 %s", target.Realname))
 		}
 	}
 
-	client.SendMessage(client.Server.GetConfig().Server.Name, "315", client.Nickname, mask, "End of WHO list")
+	client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_ENDOFWHO), client.Nickname, mask, "End of WHO list")
 
 	return nil
 }
@@ -518,7 +520,7 @@ func handleWhois(params *HookParams) error {
 
 	// Check if the client provided a nickname
 	if len(message.Params) < 1 {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "461", client.Nickname, "WHOIS", "Not enough parameters")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NEEDMOREPARAMS), client.Nickname, "WHOIS", "Not enough parameters")
 		return nil
 	}
 
@@ -526,7 +528,7 @@ func handleWhois(params *HookParams) error {
 	targetClient := client.Server.GetClient(target)
 
 	if targetClient == nil {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "401", client.Nickname, target, "No such nick/channel")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NOSUCHNICK), client.Nickname, target, "No such nick/channel")
 		return nil
 	}
 
@@ -534,8 +536,8 @@ func handleWhois(params *HookParams) error {
 	networkName := client.Server.GetConfig().Server.Network
 
 	// Send WHOIS information
-	client.SendMessage(serverName, "311", client.Nickname, targetClient.Nickname, targetClient.Username, targetClient.Hostname, "*", targetClient.Realname)
-	client.SendMessage(serverName, "312", client.Nickname, targetClient.Nickname, serverName, fmt.Sprintf("%s Server", networkName))
+	client.SendMessage(serverName, fmt.Sprintf("%d", irc.RPL_WHOISUSER), client.Nickname, targetClient.Nickname, targetClient.Username, targetClient.Hostname, "*", targetClient.Realname)
+	client.SendMessage(serverName, fmt.Sprintf("%d", irc.RPL_WHOISSERVER), client.Nickname, targetClient.Nickname, serverName, fmt.Sprintf("%s Server", networkName))
 
 	// Send channel list
 	var channels string
@@ -543,19 +545,19 @@ func handleWhois(params *HookParams) error {
 		channels += channelName + " "
 	}
 	if channels != "" {
-		client.SendMessage(serverName, "319", client.Nickname, targetClient.Nickname, channels)
+		client.SendMessage(serverName, fmt.Sprintf("%d", irc.RPL_WHOISCHANNELS), client.Nickname, targetClient.Nickname, channels)
 	}
 
 	// Send operator status
 	if targetClient.IsOper {
-		client.SendMessage(serverName, "313", client.Nickname, targetClient.Nickname, "is an IRC Operator")
+		client.SendMessage(serverName, fmt.Sprintf("%d", irc.RPL_WHOISOPERATOR), client.Nickname, targetClient.Nickname, "is an IRC Operator")
 	}
 
 	// Send idle time
-	client.SendMessage(serverName, "317", client.Nickname, targetClient.Nickname, fmt.Sprintf("%d", int(time.Since(targetClient.LastPing).Seconds())), "seconds idle")
+	client.SendMessage(serverName, fmt.Sprintf("%d", irc.RPL_WHOISIDLE), client.Nickname, targetClient.Nickname, fmt.Sprintf("%d", int(time.Since(targetClient.LastPing).Seconds())), "seconds idle")
 
 	// End of WHOIS
-	client.SendMessage(serverName, "318", client.Nickname, targetClient.Nickname, "End of WHOIS list")
+	client.SendMessage(serverName, fmt.Sprintf("%d", irc.RPL_ENDOFWHOIS), client.Nickname, targetClient.Nickname, "End of WHOIS list")
 
 	return nil
 }
@@ -566,7 +568,7 @@ func handleList(params *HookParams) error {
 	message := params.Message
 
 	// Start the list
-	client.SendMessage(client.Server.GetConfig().Server.Name, "321", client.Nickname, "Channel", "Users Name")
+	client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_LISTSTART), client.Nickname, "Channel", "Users Name")
 
 	// If a specific channel is requested
 	if len(message.Params) > 0 {
@@ -574,7 +576,7 @@ func handleList(params *HookParams) error {
 		for _, channelName := range channels {
 			channel := client.Server.GetChannel(channelName)
 			if channel != nil {
-				client.SendMessage(client.Server.GetConfig().Server.Name, "322", client.Nickname, channelName, fmt.Sprintf("%d", channel.MemberCount()), channel.Topic)
+				client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_LIST), client.Nickname, channelName, fmt.Sprintf("%d", channel.MemberCount()), channel.Topic)
 			}
 		}
 	} else {
@@ -582,13 +584,13 @@ func handleList(params *HookParams) error {
 		client.Server.channels.Range(func(key, value interface{}) bool {
 			channelName := key.(string)
 			channel := value.(*Channel)
-			client.SendMessage(client.Server.GetConfig().Server.Name, "322", client.Nickname, channelName, fmt.Sprintf("%d", channel.MemberCount()), channel.Topic)
+			client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_LIST), client.Nickname, channelName, fmt.Sprintf("%d", channel.MemberCount()), channel.Topic)
 			return true // Continue iteration
 		})
 	}
 
 	// End the list
-	client.SendMessage(client.Server.GetConfig().Server.Name, "323", client.Nickname, "End of LIST")
+	client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_LISTEND), client.Nickname, "End of LIST")
 
 	return nil
 }
@@ -626,7 +628,7 @@ func handleTopic(params *HookParams) error {
 
 	// Check if the client provided a channel
 	if len(message.Params) < 1 {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "461", client.Nickname, "TOPIC", "Not enough parameters")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NEEDMOREPARAMS), client.Nickname, "TOPIC", "Not enough parameters")
 		return nil
 	}
 
@@ -634,13 +636,13 @@ func handleTopic(params *HookParams) error {
 	channel := client.Server.GetChannel(channelName)
 
 	if channel == nil {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "403", client.Nickname, channelName, "No such channel")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NOSUCHCHANNEL), client.Nickname, channelName, "No such channel")
 		return nil
 	}
 
 	// Check if the client is on the channel
 	if !channel.IsMember(client) {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "442", client.Nickname, channelName, "You're not on that channel")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NOTONCHANNEL), client.Nickname, channelName, "You're not on that channel")
 		return nil
 	}
 
@@ -648,17 +650,17 @@ func handleTopic(params *HookParams) error {
 	if len(message.Params) < 2 {
 		topic, setBy, setAt := channel.GetTopic()
 		if topic != "" {
-			client.SendMessage(client.Server.GetConfig().Server.Name, "332", client.Nickname, channelName, topic)
+			client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_TOPIC), client.Nickname, channelName, topic)
 			client.SendMessage(client.Server.GetConfig().Server.Name, "333", client.Nickname, channelName, setBy, fmt.Sprintf("%d", setAt.Unix()))
 		} else {
-			client.SendMessage(client.Server.GetConfig().Server.Name, "331", client.Nickname, channelName, "No topic is set")
+			client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_NOTOPIC), client.Nickname, channelName, "No topic is set")
 		}
 		return nil
 	}
 
 	// Check if the client can set the topic
 	if channel.Modes.TopicSettableByOpsOnly && !client.IsOper {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "482", client.Nickname, channelName, "You're not a channel operator")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_CHANOPRIVSNEEDED), client.Nickname, channelName, "You're not a channel operator")
 		return nil
 	}
 
@@ -679,7 +681,7 @@ func handleKick(params *HookParams) error {
 
 	// Check if the client provided a channel and a target
 	if len(message.Params) < 2 {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "461", client.Nickname, "KICK", "Not enough parameters")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NEEDMOREPARAMS), client.Nickname, "KICK", "Not enough parameters")
 		return nil
 	}
 
@@ -694,32 +696,32 @@ func handleKick(params *HookParams) error {
 	// Get the channel
 	channel := client.Server.GetChannel(channelName)
 	if channel == nil {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "403", client.Nickname, channelName, "No such channel")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NOSUCHCHANNEL), client.Nickname, channelName, "No such channel")
 		return nil
 	}
 
 	// Check if the client is on the channel
 	if !channel.IsMember(client) {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "442", client.Nickname, channelName, "You're not on that channel")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NOTONCHANNEL), client.Nickname, channelName, "You're not on that channel")
 		return nil
 	}
 
 	// Check if the client is an operator
 	if !client.IsOper {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "482", client.Nickname, channelName, "You're not a channel operator")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_CHANOPRIVSNEEDED), client.Nickname, channelName, "You're not a channel operator")
 		return nil
 	}
 
 	// Get the target client
 	targetClient := client.Server.GetClient(target)
 	if targetClient == nil {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "401", client.Nickname, target, "No such nick/channel")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NOSUCHNICK), client.Nickname, target, "No such nick/channel")
 		return nil
 	}
 
 	// Check if the target is on the channel
 	if !channel.IsMember(targetClient) {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "441", client.Nickname, target, channelName, "They aren't on that channel")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_USERNOTINCHANNEL), client.Nickname, target, channelName, "They aren't on that channel")
 		return nil
 	}
 
@@ -736,7 +738,7 @@ func handleInvite(params *HookParams) error {
 
 	// Check if the client provided a target and a channel
 	if len(message.Params) < 2 {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "461", client.Nickname, "INVITE", "Not enough parameters")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NEEDMOREPARAMS), client.Nickname, "INVITE", "Not enough parameters")
 		return nil
 	}
 
@@ -746,32 +748,32 @@ func handleInvite(params *HookParams) error {
 	// Get the channel
 	channel := client.Server.GetChannel(channelName)
 	if channel == nil {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "403", client.Nickname, channelName, "No such channel")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NOSUCHCHANNEL), client.Nickname, channelName, "No such channel")
 		return nil
 	}
 
 	// Check if the client is on the channel
 	if !channel.IsMember(client) {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "442", client.Nickname, channelName, "You're not on that channel")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NOTONCHANNEL), client.Nickname, channelName, "You're not on that channel")
 		return nil
 	}
 
 	// Check if the channel is invite-only and the client is not an operator
 	if channel.Modes.InviteOnly && !client.IsOper {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "482", client.Nickname, channelName, "You're not a channel operator")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_CHANOPRIVSNEEDED), client.Nickname, channelName, "You're not a channel operator")
 		return nil
 	}
 
 	// Get the target client
 	targetClient := client.Server.GetClient(target)
 	if targetClient == nil {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "401", client.Nickname, target, "No such nick/channel")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NOSUCHNICK), client.Nickname, target, "No such nick/channel")
 		return nil
 	}
 
 	// Check if the target is already on the channel
 	if channel.IsMember(targetClient) {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "443", client.Nickname, target, channelName, "is already on channel")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_USERONCHANNEL), client.Nickname, target, channelName, "is already on channel")
 		return nil
 	}
 
@@ -779,7 +781,7 @@ func handleInvite(params *HookParams) error {
 	channel.AddInvite(targetClient.Nickname)
 
 	// Notify the client
-	client.SendMessage(client.Server.GetConfig().Server.Name, "341", client.Nickname, target, channelName)
+	client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_INVITING), client.Nickname, target, channelName)
 
 	// Notify the target
 	targetClient.SendMessage(client.Nickname, "INVITE", targetClient.Nickname, channelName)
@@ -794,7 +796,7 @@ func handleOper(params *HookParams) error {
 
 	// Check if the client provided a username and password
 	if len(message.Params) < 2 {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "461", client.Nickname, "OPER", "Not enough parameters")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NEEDMOREPARAMS), client.Nickname, "OPER", "Not enough parameters")
 		return nil
 	}
 
@@ -804,7 +806,7 @@ func handleOper(params *HookParams) error {
 	// Get the operator
 	operator := client.Server.GetOperator(username)
 	if operator == nil || operator.Password != password {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "464", client.Nickname, "Password incorrect")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_PASSWDMISMATCH), client.Nickname, "Password incorrect")
 		return nil
 	}
 
@@ -821,7 +823,7 @@ func handleKill(params *HookParams) error {
 
 	// Check if the client provided a target and a reason
 	if len(message.Params) < 2 {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "461", client.Nickname, "KILL", "Not enough parameters")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NEEDMOREPARAMS), client.Nickname, "KILL", "Not enough parameters")
 		return nil
 	}
 
@@ -837,7 +839,7 @@ func handleKill(params *HookParams) error {
 	// Get the target client
 	targetClient := client.Server.GetClient(target)
 	if targetClient == nil {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "401", client.Nickname, target, "No such nick/channel")
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.ERR_NOSUCHNICK), client.Nickname, target, "No such nick/channel")
 		return nil
 	}
 
@@ -894,11 +896,11 @@ func handleRehash(params *HookParams) error {
 	// Rehash the server
 	err := client.Server.Rehash(newSource)
 	if err != nil {
-		client.SendMessage(client.Server.GetConfig().Server.Name, "382", client.Nickname, client.Server.GetConfig().Server.Name, fmt.Sprintf("Rehash failed: %v", err))
+		client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_REHASHING), client.Nickname, client.Server.GetConfig().Server.Name, fmt.Sprintf("Rehash failed: %v", err))
 		return nil
 	}
 
-	client.SendMessage(client.Server.GetConfig().Server.Name, "382", client.Nickname, client.Server.GetConfig().Server.Name, "Rehash successful")
+	client.SendMessage(client.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_REHASHING), client.Nickname, client.Server.GetConfig().Server.Name, "Rehash successful")
 
 	return nil
 }
