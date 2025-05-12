@@ -4,7 +4,7 @@ server:
   network: ExampleNet
   host: 0.0.0.0
   port: 6667
-  password: ""  # Optional server password
+  password: "2utqyqcfqrymup91jupm2a"
 
 # TLS configuration
 tls:
@@ -32,13 +32,13 @@ bots:
 # Operator definitions
 operators:
   - username: admin
-    password: secretpassword
+    password: w7fith_iqesfx158vrmfoq
     email: admin@example.com
     mask: "*@*"  # Hostmask pattern for authentication
   - username: moderator
-    password: moderatorpass
+    password: tnrjq8katuqpmiu-waizrg
     email: mod@example.com
-    mask: "*@example.com"
+    mask: "*@*"
 
 # Plugins/Extensions (optional)
 plugins:
