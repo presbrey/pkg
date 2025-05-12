@@ -57,9 +57,28 @@ func NewClient(server *Server, conn net.Conn) *Client {
 func (c *Client) Handle() {
 	defer c.cleanup()
 
-	// Send welcome messages
+	// Send welcome message and perform actual hostname lookup
 	c.SendRaw(fmt.Sprintf(":%s NOTICE Auth :*** Looking up your hostname...", c.Server.GetConfig().Server.Name))
-	c.SendRaw(fmt.Sprintf(":%s NOTICE Auth :*** Found your hostname", c.Server.GetConfig().Server.Name))
+	
+	// Get remote IP address
+	remoteAddr := c.Conn.RemoteAddr()
+	if tcpAddr, ok := remoteAddr.(*net.TCPAddr); ok {
+		// Perform reverse DNS lookup
+		names, err := net.LookupAddr(tcpAddr.IP.String())
+		if err == nil && len(names) > 0 {
+			// Successfully found hostname - use the first one returned
+			// Remove trailing dot from hostname if present
+			hostname := strings.TrimSuffix(names[0], ".")
+			c.Hostname = hostname
+			c.SendRaw(fmt.Sprintf(":%s NOTICE Auth :*** Found your hostname: %s", c.Server.GetConfig().Server.Name, hostname))
+		} else {
+			// Lookup failed - keep IP as hostname
+			c.SendRaw(fmt.Sprintf(":%s NOTICE Auth :*** Could not find your hostname, using IP address instead", c.Server.GetConfig().Server.Name))
+		}
+	} else {
+		// Not a TCP connection or couldn't get IP
+		c.SendRaw(fmt.Sprintf(":%s NOTICE Auth :*** Could not determine your connection type, using IP address", c.Server.GetConfig().Server.Name))
+	}
 
 	// Start goroutines for reading from and writing to the client
 	go c.pingLoop()
