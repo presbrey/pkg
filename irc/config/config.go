@@ -15,22 +15,29 @@ import (
 
 // Config represents the server configuration
 type Config struct {
-	// Server settings
+	// Server settings - general server information
 	Server struct {
-		Name     string `yaml:"name" toml:"name" json:"name" env:"IRCD_SERVER_NAME"`
-		Network  string `yaml:"network" toml:"network" json:"network" env:"IRCD_NETWORK"`
+		Name    string `yaml:"name" toml:"name" json:"name" env:"IRCD_SERVER_NAME"`
+		Network string `yaml:"network" toml:"network" json:"network" env:"IRCD_NETWORK"`
+	} `yaml:"server" toml:"server" json:"server"`
+
+	// ListenIRC settings - non-TLS connection settings
+	ListenIRC struct {
+		Enabled  bool   `yaml:"enabled" toml:"enabled" json:"enabled" env:"IRCD_ENABLED"`
 		Host     string `yaml:"host" toml:"host" json:"host" env:"IRCD_HOST"`
 		Port     int    `yaml:"port" toml:"port" json:"port" env:"IRCD_PORT"`
 		Password string `yaml:"password" toml:"password" json:"password" env:"IRCD_PASSWORD"`
-	} `yaml:"server" toml:"server" json:"server"`
+	} `yaml:"listen_irc" toml:"listen_irc" json:"listen_irc"`
 
-	// TLS settings
-	TLS struct {
+	// ListenTLS settings - TLS connection configuration
+	ListenTLS struct {
 		Enabled    bool   `yaml:"enabled" toml:"enabled" json:"enabled" env:"IRCD_TLS_ENABLED"`
+		Host       string `yaml:"host" toml:"host" json:"host" env:"IRCD_TLS_HOST"`
+		Port       int    `yaml:"port" toml:"port" json:"port" env:"IRCD_TLS_PORT"`
 		Cert       string `yaml:"cert" toml:"cert" json:"cert" env:"IRCD_TLS_CERT"`
 		Key        string `yaml:"key" toml:"key" json:"key" env:"IRCD_TLS_KEY"`
 		Generation bool   `yaml:"auto_generate" toml:"auto_generate" json:"auto_generate" env:"IRCD_TLS_AUTO_GENERATE"`
-	} `yaml:"tls" toml:"tls" json:"tls"`
+	} `yaml:"listen_tls" toml:"listen_tls" json:"listen_tls"`
 
 	// Web portal settings
 	WebPortal struct {
@@ -76,8 +83,10 @@ func Load(source string) (*Config, error) {
 	// Set defaults
 	cfg.Server.Name = "goircd.local"
 	cfg.Server.Network = "GoIRCd"
-	cfg.Server.Host = "0.0.0.0"
-	cfg.Server.Port = 6667
+	cfg.ListenIRC.Enabled = true
+	cfg.ListenIRC.Host = "0.0.0.0"
+	cfg.ListenIRC.Port = 6667
+	cfg.ListenTLS.Port = 6697
 
 	// Load configuration from file or URL
 	err := cfg.loadFromSource(source)
@@ -101,8 +110,10 @@ func (c *Config) Reload(newSource string) error {
 	newCfg := &Config{}
 	newCfg.Server.Name = "goircd.local"
 	newCfg.Server.Network = "GoIRCd"
-	newCfg.Server.Host = "0.0.0.0"
-	newCfg.Server.Port = 6667
+	newCfg.ListenIRC.Enabled = true
+	newCfg.ListenIRC.Host = "0.0.0.0"
+	newCfg.ListenIRC.Port = 6667
+	newCfg.ListenTLS.Port = 6697
 
 	// Load configuration
 	err := newCfg.loadFromSource(c.Source)
@@ -255,9 +266,14 @@ func parseBool(s string) (bool, error) {
 	return s == "true" || s == "1" || s == "yes" || s == "y", nil
 }
 
-// GetListenAddress returns the formatted listen address for the server
-func (c *Config) GetListenAddress() string {
-	return fmt.Sprintf("%s:%d", c.Server.Host, c.Server.Port)
+// GetIRCListenAddress returns the formatted listen address for the non-TLS IRC server
+func (c *Config) GetIRCListenAddress() string {
+	return fmt.Sprintf("%s:%d", c.ListenIRC.Host, c.ListenIRC.Port)
+}
+
+// GetTLSListenAddress returns the formatted listen address for the TLS IRC server
+func (c *Config) GetTLSListenAddress() string {
+	return fmt.Sprintf("%s:%d", c.ListenIRC.Host, c.ListenTLS.Port)
 }
 
 // GetWebListenAddress returns the formatted listen address for the web portal

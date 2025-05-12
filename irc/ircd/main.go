@@ -36,7 +36,16 @@ func main() {
 		}
 	}()
 
-	fmt.Printf("IRC Server started on %s\n", cfg.GetListenAddress())
+	fmt.Println("IRC Server started successfully")
+	
+	// Print listener information
+	if cfg.ListenIRC.Enabled {
+		fmt.Printf("  - Listening for unencrypted connections on %s\n", cfg.GetIRCListenAddress())
+	}
+	
+	if cfg.ListenTLS.Enabled {
+		fmt.Printf("  - Listening for TLS encrypted connections on %s\n", cfg.GetTLSListenAddress())
+	}
 
 	// Handle graceful shutdown
 	sigChan := make(chan os.Signal, 1)

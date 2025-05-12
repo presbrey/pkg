@@ -76,7 +76,7 @@ func NewWebPortal(server *Server, cfg *config.Config) (*WebPortal, error) {
 func (w *WebPortal) Start() error {
 	// Start the Echo server
 	if w.config.WebPortal.TLS {
-		return w.echo.StartTLS(w.config.GetWebListenAddress(), w.config.TLS.Cert, w.config.TLS.Key)
+		return w.echo.StartTLS(w.config.GetWebListenAddress(), w.config.ListenTLS.Cert, w.config.ListenTLS.Key)
 	}
 	return w.echo.Start(w.config.GetWebListenAddress())
 }

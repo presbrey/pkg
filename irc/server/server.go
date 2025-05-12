@@ -1,8 +1,18 @@
 package server
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"errors"
 	"fmt"
+	"math/big"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +30,7 @@ type Server struct {
 	hooks     map[string][]Hook
 	mu        sync.RWMutex // Still needed for hooks and other operations
 	listener  net.Listener
+	listeners []net.Listener
 	botAPI    *BotAPI
 	webPortal *WebPortal
 	quit      chan struct{}
@@ -85,14 +96,87 @@ func NewServer(cfg *config.Config) (*Server, error) {
 	return srv, nil
 }
 
-// Start starts the IRC server
+// Start starts the IRC server with multiple possible listeners
 func (s *Server) Start() error {
-	// Start listening for IRC connections
-	listener, err := net.Listen("tcp", s.config.GetListenAddress())
-	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %v", s.config.GetListenAddress(), err)
+	var listeners []net.Listener
+
+	// Start unencrypted IRC listener if enabled
+	if s.config.ListenIRC.Enabled {
+		// Create standard TCP listener
+		fmt.Printf("Starting unencrypted IRC server on %s\n", s.config.GetIRCListenAddress())
+		listener, err := net.Listen("tcp", s.config.GetIRCListenAddress())
+		if err != nil {
+			return fmt.Errorf("failed to listen on %s: %v", s.config.GetIRCListenAddress(), err)
+		}
+		listeners = append(listeners, listener)
 	}
-	s.listener = listener
+
+	// Start TLS encrypted IRC listener if enabled
+	if s.config.ListenTLS.Enabled {
+		// Create TLS config
+		tlsConfig := &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+		
+		// Check if we need to generate certificates
+		if s.config.ListenTLS.Generation {
+			cert, key, err := s.generateSelfSignedCert()
+			if err != nil {
+				return fmt.Errorf("failed to generate self-signed certificate: %v", err)
+			}
+			
+			// Print the certificates instead of saving to disk
+			fmt.Println("========== GENERATED CERTIFICATE ==========")
+			fmt.Println(cert)
+			fmt.Println("========== GENERATED PRIVATE KEY ==========")
+			fmt.Println(key)
+			fmt.Println("===========================================")
+			
+			// Convert PEM strings to certificate
+			certPair, err := tls.X509KeyPair([]byte(cert), []byte(key))
+			if err != nil {
+				return fmt.Errorf("failed to parse generated certificate: %v", err)
+			}
+			tlsConfig.Certificates = []tls.Certificate{certPair}
+		} else if s.config.ListenTLS.Cert != "" && s.config.ListenTLS.Key != "" {
+			// Load certificate and key from files
+			cert, err := tls.LoadX509KeyPair(s.config.ListenTLS.Cert, s.config.ListenTLS.Key)
+			if err != nil {
+				return fmt.Errorf("failed to load TLS certificate: %v", err)
+			}
+			tlsConfig.Certificates = []tls.Certificate{cert}
+		} else {
+			return fmt.Errorf("TLS is enabled but no certificate/key provided and auto-generation is disabled")
+		}
+		
+		// Create TLS listener
+		tlsHost := s.config.ListenTLS.Host
+		if tlsHost == "" {
+			tlsHost = s.config.ListenIRC.Host // Use the same host as IRC if not specified
+		}
+		tlsAddress := fmt.Sprintf("%s:%d", tlsHost, s.config.ListenTLS.Port)
+		fmt.Printf("Starting TLS encrypted IRC server on %s\n", tlsAddress)
+		tlsListener, err := tls.Listen("tcp", tlsAddress, tlsConfig)
+		if err != nil {
+			// Close any previously created listeners
+			for _, l := range listeners {
+				l.Close()
+			}
+			return fmt.Errorf("failed to create TLS listener on %s: %v", tlsAddress, err)
+		}
+		listeners = append(listeners, tlsListener)
+	}
+
+	// Ensure at least one listener is active
+	if len(listeners) == 0 {
+		return fmt.Errorf("no listeners enabled, at least one of ListenIRC or ListenTLS must be enabled")
+	}
+
+	// Store all listeners
+	s.listeners = listeners
+
+	// Store the first listener as the primary for backward compatibility
+	s.listener = listeners[0]
 
 	// Start the web portal if enabled
 	if s.webPortal != nil {
@@ -114,9 +198,11 @@ func (s *Server) Start() error {
 func (s *Server) Stop() error {
 	close(s.quit)
 
-	// Close the listener
-	if s.listener != nil {
-		s.listener.Close()
+	// Close all listeners
+	for _, listener := range s.listeners {
+		if listener != nil {
+			listener.Close()
+		}
 	}
 
 	// Stop the web portal
@@ -147,21 +233,43 @@ func (s *Server) Stop() error {
 
 // acceptConnections accepts and handles new connections
 func (s *Server) acceptConnections() {
-	for {
-		conn, err := s.listener.Accept()
-		if err != nil {
-			select {
-			case <-s.quit:
-				// Server is shutting down
-				return
-			default:
-				fmt.Printf("Failed to accept connection: %v\n", err)
-				continue
-			}
-		}
+	for i := range s.listeners {
+		// Using a local copy of the index for the goroutine
+		listenerIndex := i
+		go func() {
+			for {
+				select {
+				case <-s.quit:
+					// Server is shutting down
+					return
+				default:
+					// Accept new connection
+					conn, err := s.listeners[listenerIndex].Accept()
+					if err != nil {
+						// Check if the server is shutting down
+						if errors.Is(err, net.ErrClosed) {
+							// Connection closed, exit this goroutine
+							return
+						}
+						
+						// Check if we need to exit
+						select {
+						case <-s.quit:
+							return // Server is shutting down
+						default:
+							// Not shutting down, log the error
+							fmt.Printf("Failed to accept connection on listener %d: %v\n", listenerIndex, err)
+							// Add a small delay to avoid tight loops on errors
+							time.Sleep(100 * time.Millisecond)
+							continue
+						}
+					}
 
-		// Handle the connection in a goroutine
-		go s.handleConnection(conn)
+					// Handle the connection in a goroutine
+					go s.handleConnection(conn)
+				}
+			}
+		}()
 	}
 }
 
@@ -417,4 +525,85 @@ func (s *Server) ChannelCount() int {
 		return true // Continue iteration
 	})
 	return count
+}
+
+// generateSelfSignedCert generates a self-signed certificate and private key
+func (s *Server) generateSelfSignedCert() (string, string, error) {
+	// Generate private key
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate private key: %v", err)
+	}
+
+	// Define certificate template
+	serverName := s.config.Server.Name
+	if serverName == "" {
+		serverName = "goircd.local"
+	}
+
+	// Create a unique serial number
+	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate serial number: %v", err)
+	}
+
+	// Generate a certificate that is valid for 1 year
+	notBefore := time.Now()
+	notAfter := notBefore.Add(365 * 24 * time.Hour)
+
+	// Create the certificate template
+	template := x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{"GoIRCd Self-Signed Certificate"},
+			CommonName:   serverName,
+		},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+
+	// Add Subject Alternative Names for the server
+	host := s.config.ListenIRC.Host
+	// If host is 0.0.0.0 or ::, use localhost instead for the certificate
+	if host == "0.0.0.0" || host == "::" {
+		template.DNSNames = []string{serverName, "localhost"}
+		template.IPAddresses = []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}
+	} else {
+		// Check if the host is an IP address
+		if ip := net.ParseIP(host); ip != nil {
+			template.IPAddresses = []net.IP{ip}
+		} else {
+			template.DNSNames = []string{serverName, host}
+		}
+	}
+
+	// Create the certificate
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create certificate: %v", err)
+	}
+
+	// Encode certificate to PEM
+	certBuffer := strings.Builder{}
+	pem.Encode(&certBuffer, &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: derBytes,
+	})
+
+	// Encode private key to PEM
+	keyBuffer := strings.Builder{}
+	keyBytes, err := x509.MarshalECPrivateKey(privateKey)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal private key: %v", err)
+	}
+
+	pem.Encode(&keyBuffer, &pem.Block{
+		Type:  "EC PRIVATE KEY",
+		Bytes: keyBytes,
+	})
+
+	return certBuffer.String(), keyBuffer.String(), nil
 }

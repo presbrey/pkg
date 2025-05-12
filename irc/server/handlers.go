@@ -81,7 +81,7 @@ func handleUser(params *HookParams) error {
 	// Check if the client is now registered
 	if client.Nickname != "" {
 		// Check if server password is required but not provided
-		serverPassword := client.Server.GetConfig().Server.Password
+		serverPassword := client.Server.GetConfig().ListenIRC.Password
 		if serverPassword != "" {
 			client.mu.RLock()
 			passwordProvided := client.PasswordProvided
@@ -232,7 +232,7 @@ func handlePass(params *HookParams) error {
 	}
 
 	password := message.Params[0]
-	serverPassword := client.Server.GetConfig().Server.Password
+	serverPassword := client.Server.GetConfig().ListenIRC.Password
 
 	// If the server requires a password, validate it
 	if serverPassword != "" && password != serverPassword {
