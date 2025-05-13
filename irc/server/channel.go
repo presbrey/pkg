@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
-	
+
 	"github.com/presbrey/pkg/irc"
 )
 
@@ -172,8 +172,8 @@ func (c *Channel) SendNames(client *Client) {
 	}
 
 	// Send the names list
-	client.SendMessage(c.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_NAMREPLY), client.Nickname, "=", c.Name, names)
-	client.SendMessage(c.Server.GetConfig().Server.Name, fmt.Sprintf("%d", irc.RPL_ENDOFNAMES), client.Nickname, c.Name, "End of /NAMES list")
+	client.SendReply(irc.RPL_NAMREPLY, "=", c.Name, names)
+	client.SendReply(irc.RPL_ENDOFNAMES, c.Name, "End of /NAMES list")
 }
 
 // SetMode sets a mode for the channel

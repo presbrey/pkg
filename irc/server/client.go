@@ -59,7 +59,7 @@ func (c *Client) Handle() {
 
 	// Send welcome message and perform actual hostname lookup
 	c.SendRaw(fmt.Sprintf(":%s NOTICE Auth :*** Looking up your hostname...", c.Server.GetConfig().Server.Name))
-	
+
 	// Get remote IP address
 	remoteAddr := c.Conn.RemoteAddr()
 	if tcpAddr, ok := remoteAddr.(*net.TCPAddr); ok {
@@ -157,6 +157,39 @@ func (c *Client) SendMessage(prefix, command string, params ...string) {
 	c.SendRaw(msg.String())
 }
 
+// SendServerLine sends a line to the client with the server name as the prefix
+func (c *Client) SendServerLine(command string, params ...string) {
+	c.SendMessage(c.Server.GetConfig().Server.Name, command, params...)
+}
+
+// SendNumeric sends a numeric response to the client
+func (c *Client) SendNumeric(numeric int, params ...string) {
+	c.SendNumericWithTarget(numeric, c.Nickname, params...)
+}
+
+// SendNumericWithTarget sends a numeric response to the client with a custom target (like "*" for unregistered clients)
+func (c *Client) SendNumericWithTarget(numeric int, target string, params ...string) {
+	allParams := make([]string, 0, len(params)+1)
+	allParams = append(allParams, target)
+	allParams = append(allParams, params...)
+	c.SendServerLine(fmt.Sprintf("%d", numeric), allParams...)
+}
+
+// SendError sends an error response to the client
+func (c *Client) SendError(errorCode int, params ...string) {
+	target := c.Nickname
+	// Use '*' as the target for unregistered clients or if nickname is empty
+	if !c.Registered || c.Nickname == "" {
+		target = "*"
+	}
+	c.SendNumericWithTarget(errorCode, target, params...)
+}
+
+// SendReply sends a reply to the client
+func (c *Client) SendReply(replyCode int, params ...string) {
+	c.SendNumeric(replyCode, params...)
+}
+
 // pingLoop sends pings to the client to check if they're still connected
 func (c *Client) pingLoop() {
 	ticker := time.NewTicker(30 * time.Second)
@@ -223,16 +256,16 @@ func (c *Client) SendWelcome() {
 	networkName := c.Server.GetConfig().Server.Network
 
 	// Send the initial welcome messages
-	c.SendMessage(serverName, "001", c.Nickname, fmt.Sprintf("Welcome to the %s IRC Network %s!%s@%s", networkName, c.Nickname, c.Username, c.Hostname))
-	c.SendMessage(serverName, "002", c.Nickname, fmt.Sprintf("Your host is %s, running version GoIRCd-1.0", serverName))
-	c.SendMessage(serverName, "003", c.Nickname, fmt.Sprintf("This server was created %s", c.Server.startTime.Format(time.RFC1123)))
-	c.SendMessage(serverName, "004", c.Nickname, serverName, "GoIRCd-1.0", "iwosxz", "biklmnopstv")
+	c.SendReply(irc.RPL_WELCOME, fmt.Sprintf("Welcome to the %s IRC Network %s!%s@%s", networkName, c.Nickname, c.Username, c.Hostname))
+	c.SendReply(irc.RPL_YOURHOST, fmt.Sprintf("Your host is %s, running version GoIRCd-1.0", serverName))
+	c.SendReply(irc.RPL_CREATED, fmt.Sprintf("This server was created %s", c.Server.startTime.Format(time.RFC1123)))
+	c.SendReply(irc.RPL_MYINFO, serverName, "GoIRCd-1.0", "iwosxz", "biklmnopstv")
 
 	// Send MOTD
-	c.SendMessage(serverName, "375", c.Nickname, fmt.Sprintf("- %s Message of the Day -", serverName))
-	c.SendMessage(serverName, "372", c.Nickname, "- Welcome to GoIRCd!")
-	c.SendMessage(serverName, "372", c.Nickname, "- This server is running GoIRCd, a Go IRC Server")
-	c.SendMessage(serverName, "376", c.Nickname, "End of /MOTD command")
+	c.SendReply(irc.RPL_MOTDSTART, fmt.Sprintf("- %s Message of the Day -", serverName))
+	c.SendReply(irc.RPL_MOTD, "- Welcome to GoIRCd!")
+	c.SendReply(irc.RPL_MOTD, "- This server is running GoIRCd, a Go IRC Server")
+	c.SendReply(irc.RPL_ENDOFMOTD, "End of /MOTD command")
 }
 
 // JoinChannel makes the client join a channel
@@ -256,9 +289,9 @@ func (c *Client) JoinChannel(channelName string) {
 
 	// Send the channel topic
 	if channel.Topic != "" {
-		c.SendMessage(c.Server.GetConfig().Server.Name, "332", c.Nickname, channelName, channel.Topic)
+		c.SendReply(irc.RPL_TOPIC, channelName, channel.Topic)
 	} else {
-		c.SendMessage(c.Server.GetConfig().Server.Name, "331", c.Nickname, channelName, "No topic is set")
+		c.SendReply(irc.RPL_NOTOPIC, channelName, "No topic is set")
 	}
 
 	// Send the list of users in the channel
@@ -315,7 +348,9 @@ func (c *Client) SetMode(mode string, enable bool) {
 		modeStr = "-"
 	}
 	modeStr += mode
-	c.SendMessage(c.Server.GetConfig().Server.Name, "MODE", c.Nickname, modeStr)
+
+	// Send the proper MODE message that clients will be expecting
+	c.SendServerLine("MODE", c.Nickname, modeStr)
 }
 
 // SetAway sets the client's away status
@@ -326,9 +361,9 @@ func (c *Client) SetAway(away bool, message string) {
 	c.mu.Unlock()
 
 	if away {
-		c.SendMessage(c.Server.GetConfig().Server.Name, "306", c.Nickname, "You have been marked as being away")
+		c.SendReply(irc.RPL_AWAY, "You have been marked as being away")
 	} else {
-		c.SendMessage(c.Server.GetConfig().Server.Name, "305", c.Nickname, "You are no longer marked as being away")
+		c.SendReply(irc.RPL_UNAWAY, "You are no longer marked as being away")
 	}
 }
 
@@ -339,7 +374,7 @@ func (c *Client) SetOper(isOper bool) {
 	c.mu.Unlock()
 
 	if isOper {
-		c.SendMessage(c.Server.GetConfig().Server.Name, "381", c.Nickname, "You are now an IRC operator")
+		c.SendReply(irc.RPL_YOUREOPER, "You are now an IRC operator")
 		c.SetMode("o", true)
 	} else {
 		c.SetMode("o", false)

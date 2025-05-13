@@ -117,21 +117,21 @@ func (s *Server) Start() error {
 		tlsConfig := &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		}
-		
+
 		// Check if we need to generate certificates
 		if s.config.ListenTLS.Generation {
 			cert, key, err := s.generateSelfSignedCert()
 			if err != nil {
 				return fmt.Errorf("failed to generate self-signed certificate: %v", err)
 			}
-			
+
 			// Print the certificates instead of saving to disk
 			fmt.Println("========== GENERATED CERTIFICATE ==========")
 			fmt.Println(cert)
 			fmt.Println("========== GENERATED PRIVATE KEY ==========")
 			fmt.Println(key)
 			fmt.Println("===========================================")
-			
+
 			// Convert PEM strings to certificate
 			certPair, err := tls.X509KeyPair([]byte(cert), []byte(key))
 			if err != nil {
@@ -148,7 +148,7 @@ func (s *Server) Start() error {
 		} else {
 			return fmt.Errorf("TLS is enabled but no certificate/key provided and auto-generation is disabled")
 		}
-		
+
 		// Create TLS listener
 		tlsHost := s.config.ListenTLS.Host
 		if tlsHost == "" {
@@ -251,7 +251,7 @@ func (s *Server) acceptConnections() {
 							// Connection closed, exit this goroutine
 							return
 						}
-						
+
 						// Check if we need to exit
 						select {
 						case <-s.quit:
@@ -363,12 +363,12 @@ func (s *Server) GetClient(nickname string) *Client {
 	// Use Range to iterate through all clients
 	s.clients.Range(func(key, value interface{}) bool {
 		client := value.(*Client)
-		
+
 		// Add locking when accessing the client's nickname
 		client.mu.RLock()
 		isMatch := client.Nickname == nickname
 		client.mu.RUnlock()
-		
+
 		if isMatch {
 			result = client
 			return false // Stop iteration
