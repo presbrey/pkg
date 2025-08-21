@@ -1,0 +1,99 @@
+{
+  "*": {
+    "feature1": true,
+    "feature2": false,
+    "feature3": true,
+    "betaFeatures": false,
+    "premiumFeatures": false,
+    "maxItems": 100,
+    "maxDataPoints": 1000,
+    "apiRateLimit": 100,
+    "discount": 0.1,
+    "apiVersion": "v1",
+    "experimentVariant": "control",
+    "allowedRegions": [
+      "us-east-1",
+      "us-west-2"
+    ],
+    "metadata": {
+      "version": "1.0.0",
+      "tier": "standard",
+      "supportLevel": "basic",
+      "dataRetentionDays": 30
+    },
+    "limits": {
+      "maxUsers": 10,
+      "maxStorage": "10GB",
+      "maxBandwidth": "100GB"
+    },
+    "notifications": {
+      "email": true,
+      "sms": false,
+      "webhook": false
+    },
+    "security": {
+      "mfaRequired": false,
+      "passwordMinLength": 8,
+      "sessionTimeout": 3600
+    }
+  },
+  "admin@example.com": {
+    "betaFeatures": true,
+    "premiumFeatures": true,
+    "maxItems": 500,
+    "maxDataPoints": 10000,
+    "apiRateLimit": 1000,
+    "discount": 0.3,
+    "experimentVariant": "A",
+    "allowedRegions": [
+      "us-east-1",
+      "us-west-2",
+      "eu-west-1",
+      "ap-southeast-1"
+    ],
+    "metadata": {
+      "version": "2.0.0",
+      "tier": "enterprise",
+      "supportLevel": "priority",
+      "dataRetentionDays": 365
+    },
+    "limits": {
+      "maxUsers": 1000,
+      "maxStorage": "1TB",
+      "maxBandwidth": "10TB"
+    },
+    "security": {
+      "mfaRequired": true,
+      "passwordMinLength": 12,
+      "sessionTimeout": 7200
+    }
+  },
+  "developer@example.com": {
+    "betaFeatures": true,
+    "feature2": true,
+    "maxItems": 200,
+    "apiVersion": "v2",
+    "experimentVariant": "B",
+    "metadata": {
+      "version": "2.0.0-beta",
+      "tier": "developer",
+      "supportLevel": "community",
+      "debugMode": true
+    }
+  },
+  "user@example.com": {
+    "feature2": true,
+    "maxItems": 150,
+    "discount": 0.15,
+    "allowedRegions": [
+      "us-east-1",
+      "us-west-2",
+      "eu-west-1"
+    ],
+    "notifications": {
+      "email": true,
+      "sms": true,
+      "webhook": false
+    }
+  }
+}
