@@ -114,32 +114,41 @@ func IRCLogger() echo.MiddlewareFunc {
 
 // IRCLoggerWithConfig returns a middleware which logs requests to IRC using provided config
 func IRCLoggerWithConfig(config IRCLoggerConfig) echo.MiddlewareFunc {
+	// Connection state management
+	var connected bool
+	var connMutex sync.RWMutex
 	// Create unbuffered channel for log messages
 	logCh := make(chan string)
 
-	// Initialize IRC client
-	clientConfig := girc.Config{
-		Server:   config.Server,
-		Port:     config.Port,
-		Nick:     config.Nick,
-		User:     config.User,
-		SSL:      config.UseTLS,
-	}
-	// Add password if provided
-	if config.Password != "" {
-		clientConfig.SASL = &girc.SASLPlain{
-			User: config.Nick,
-			Pass: config.Password,
+	// Function to create a new IRC client with the same configuration
+	createClient := func() *girc.Client {
+		clientConfig := girc.Config{
+			Server:   config.Server,
+			Port:     config.Port,
+			Nick:     config.Nick,
+			User:     config.User,
+			SSL:      config.UseTLS,
 		}
+		// Add password if provided
+		if config.Password != "" {
+			clientConfig.SASL = &girc.SASLPlain{
+				User: config.Nick,
+				Pass: config.Password,
+			}
+		}
+		return girc.New(clientConfig)
 	}
-	client := girc.New(clientConfig)
+	
+	// Initialize IRC client
+	client := createClient()
 	
 	client.Handlers.Add(girc.ERROR, func(c *girc.Client, e girc.Event) {
 		fmt.Printf("IRC connection error: %v\n", e.Params[0])
 	})
 
-	var connected bool
-	var connMutex sync.RWMutex
+
+	// Channel to signal when connection is established
+	connectedCh := make(chan struct{})
 
 	// Handle connection established
 	client.Handlers.Add(girc.CONNECTED, func(c *girc.Client, e girc.Event) {
@@ -148,6 +157,14 @@ func IRCLoggerWithConfig(config IRCLoggerConfig) echo.MiddlewareFunc {
 		connected = true
 		connMutex.Unlock()
 		fmt.Printf("Connected to IRC server %s and joined %s\n", config.Server, config.Channel)
+		
+		// Notify that we're connected
+		select {
+		case connectedCh <- struct{}{}:
+			// Successfully sent signal
+		default:
+			// Channel already closed or buffer full, ignore
+		}
 	})
 
 	// Handle disconnect
@@ -157,22 +174,133 @@ func IRCLoggerWithConfig(config IRCLoggerConfig) echo.MiddlewareFunc {
 		connMutex.Unlock()
 		fmt.Printf("Disconnected from IRC server %s\n", config.Server)
 
-		// Try to reconnect
+		// Create a new client instance for reconnection instead of reusing the existing one
 		go func() {
-			time.Sleep(5 * time.Second)
-			if err := client.Connect(); err != nil {
-				fmt.Printf("Failed to reconnect to IRC: %v\n", err)
+			// We need to create a new client for each reconnection attempt
+			// as the girc library doesn't support calling Connect() multiple times on the same client
+			newClientConfig := girc.Config{
+				Server:   config.Server,
+				Port:     config.Port,
+				Nick:     config.Nick,
+				User:     config.User,
+				SSL:      config.UseTLS,
+			}
+			
+			// Add password if provided
+			if config.Password != "" {
+				newClientConfig.SASL = &girc.SASLPlain{
+					User: config.Nick,
+					Pass: config.Password,
+				}
+			}
+			
+			// Create a new client
+			newClient := girc.New(newClientConfig)
+			
+			// Add the same handlers to the new client
+			newClient.Handlers.Add(girc.CONNECTED, func(c *girc.Client, e girc.Event) {
+				c.Cmd.Join(config.Channel)
+				connMutex.Lock()
+				connected = true
+				connMutex.Unlock()
+				client = newClient // Update the main client reference
+				fmt.Printf("Reconnected to IRC server %s and joined %s\n", config.Server, config.Channel)
+			})
+
+			// Try to connect with the new client
+			if err := newClient.Connect(); err != nil {
+				fmt.Printf("Reconnection failed: %v\n", err)
+				
+				// If initial reconnection fails, try with backoff
+				for retries := 0; retries < 3; retries++ {
+					time.Sleep(time.Duration(1+retries) * time.Second)
+					
+					// Create a fresh client for each retry
+					retryClient := girc.New(newClientConfig)
+					
+					// Set up the same handlers
+					retryClient.Handlers.Add(girc.CONNECTED, func(c *girc.Client, e girc.Event) {
+						c.Cmd.Join(config.Channel)
+						connMutex.Lock()
+						connected = true
+						connMutex.Unlock()
+						client = retryClient // Update the main client reference
+						fmt.Printf("Reconnected to IRC server %s and joined %s\n", config.Server, config.Channel)
+					})
+					
+					if err := retryClient.Connect(); err != nil {
+						fmt.Printf("Failed to reconnect to IRC (attempt %d): %v\n", retries+1, err)
+					} else {
+						break
+					}
+				}
 			}
 		}()
 	})
-
+	
 	// Start IRC client connection in a goroutine
+	connectErrorCh := make(chan error, 1)
 	go func() {
 		if err := client.Connect(); err != nil {
 			fmt.Printf("Failed to connect to IRC: %v\n", err)
+			connectErrorCh <- err
 		}
 	}()
+	
+	// Wait for initial connection or timeout
+	select {
+	case <-connectedCh:
+		fmt.Println("Successfully connected to IRC server")
+	case err := <-connectErrorCh:
+		fmt.Printf("Error connecting to IRC server: %v\n", err)
+	case <-time.After(2 * time.Second):
+		// Continue even if we timeout. We'll queue messages and send them when connected.
+		fmt.Println("Timeout waiting for IRC connection, will continue and retry")
+	}
 
+	// Create a buffer to hold messages that couldn't be sent due to connection issues
+	msgBuffer := make([]string, 0, 100) // Buffer up to 100 messages
+	msgBufferMutex := &sync.Mutex{}
+	
+	// Function to try to send buffered messages
+	sendBufferedMessages := func(ircClient *girc.Client) {
+		msgBufferMutex.Lock()
+		defer msgBufferMutex.Unlock()
+		
+		if len(msgBuffer) == 0 {
+			return
+		}
+		
+		connMutex.RLock()
+		isConnected := connected
+		connMutex.RUnlock()
+		
+		if !isConnected {
+			return
+		}
+		
+		fmt.Printf("Attempting to send %d buffered messages\n", len(msgBuffer))
+		for i, msg := range msgBuffer {
+			ircClient.Cmd.Message(config.Channel, msg)
+			// Short delay to prevent flooding
+			if i < len(msgBuffer)-1 {
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+		
+		// Clear buffer after sending
+		msgBuffer = msgBuffer[:0]
+	}
+	
+	// Add handler for successful channel join to send buffered messages
+	client.Handlers.Add(girc.JOIN, func(c *girc.Client, e girc.Event) {
+		// Only process our own joins
+		if e.Source.Name == config.Nick && e.Params[0] == config.Channel {
+			fmt.Printf("Successfully joined channel %s, sending any buffered messages\n", config.Channel)
+			sendBufferedMessages(client)
+		}
+	})
+	
 	// Start message consumer in a goroutine
 	go func() {
 		for msg := range logCh {
@@ -183,7 +311,20 @@ func IRCLoggerWithConfig(config IRCLoggerConfig) echo.MiddlewareFunc {
 			if isConnected {
 				client.Cmd.Message(config.Channel, msg)
 			} else {
-				fmt.Printf("Not connected to IRC, dropping log message: %s\n", msg)
+				// Buffer the message for later sending
+				fmt.Printf("Not connected to IRC, buffering log message: %s\n", msg)
+				msgBufferMutex.Lock()
+				// Avoid buffer overflow by removing oldest message if needed
+				if len(msgBuffer) >= 100 {
+					msgBuffer = msgBuffer[1:]
+				}
+				msgBuffer = append(msgBuffer, msg)
+				msgBufferMutex.Unlock()
+				
+				// Do not attempt to reconnect here
+				// The DISCONNECTED handler should handle reconnection
+				// Attempting to call Connect() multiple times on the same client instance
+				// will cause a panic in the girc library
 			}
 		}
 	}()
