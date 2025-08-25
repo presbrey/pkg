@@ -34,21 +34,21 @@ type Config struct {
 	// HTTPClient allows custom HTTP client configuration
 	HTTPClient *http.Client
 
-	// DefaultTenant is used when no tenant is specified
-	DefaultTenant string
+	// DefaultHost is used when no host is specified
+	DefaultHost string
 
-	// FallbackTenant is used when a key is not found in the primary tenant
-	FallbackTenant string
+	// FallbackHost is used when a key is not found in the primary host
+	FallbackHost string
 
-	// GetTenantFromContext allows custom logic to extract tenant from context
-	GetTenantFromContext func(c echo.Context) string
+	// GetHostFromContext allows custom logic to extract host from context
+	GetHostFromContext func(c echo.Context) string
 
 	// GetUserFromContext allows custom logic to extract user from context
 	GetUserFromContext func(c echo.Context) string
 }
 
-// TenantConfig represents the structure of a tenant's JSON configuration
-type TenantConfig map[string]map[string]interface{}
+// HostConfig represents the structure of a host's JSON configuration
+type HostConfig map[string]map[string]interface{}
 
 // SDK is the main feature flags SDK
 type SDK struct {
@@ -63,7 +63,7 @@ type cache struct {
 }
 
 type cacheEntry struct {
-	data      TenantConfig
+	data      HostConfig
 	err       error
 	expiresAt time.Time
 }
@@ -84,8 +84,8 @@ func NewWithConfig(config Config) *SDK {
 		config.ErrorTTL = 1 * time.Minute
 	}
 
-	if config.GetTenantFromContext == nil {
-		config.GetTenantFromContext = func(c echo.Context) string {
+	if config.GetHostFromContext == nil {
+		config.GetHostFromContext = func(c echo.Context) string {
 			if h := c.Request().Host; h != "" {
 				return h
 			}
@@ -112,42 +112,23 @@ func NewWithConfig(config Config) *SDK {
 
 // New creates a new SDK instance that uses a single static configuration file
 func New(flagsURL string) *SDK {
-	config := Config{
+	return NewWithConfig(Config{
 		FlagsURL: flagsURL,
-		HTTPClient: &http.Client{
-			Timeout: 30 * time.Second,
+		GetHostFromContext: func(c echo.Context) string {
+			return "*"
 		},
-		CacheTTL: 5 * time.Minute,
-		ErrorTTL: 1 * time.Minute,
-		// Override tenant extraction to always return a fixed value
-		GetTenantFromContext: func(c echo.Context) string {
-			return "_static_"
-		},
-		GetUserFromContext: func(c echo.Context) string {
-			if user, ok := c.Get("user").(string); ok {
-				return user
-			}
-			return ""
-		},
-	}
-
-	return &SDK{
-		config: config,
-		cache: &cache{
-			entries: make(map[string]*cacheEntry),
-		},
-	}
+	})
 }
 
-// fetchTenantConfig fetches the tenant configuration from HTTP
-func (s *SDK) fetchTenantConfig(ctx context.Context, tenant string) (TenantConfig, error) {
+// fetchHostConfig fetches the host configuration from HTTP
+func (s *SDK) fetchHostConfig(ctx context.Context, host string) (HostConfig, error) {
 	var url string
 	if s.config.FlagsURL != "" {
 		// Single file mode - always use the same file
 		url = s.config.FlagsURL
 	} else {
-		// Multi-tenant mode - construct URL based on tenant
-		url = fmt.Sprintf("%s/%s.json", s.config.MultihostBase, tenant)
+		// Multihost mode - construct URL based on host
+		url = fmt.Sprintf("%s/%s.json", s.config.MultihostBase, host)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -170,7 +151,7 @@ func (s *SDK) fetchTenantConfig(ctx context.Context, tenant string) (TenantConfi
 		return nil, fmt.Errorf("reading response body: %w", err)
 	}
 
-	var config TenantConfig
+	var config HostConfig
 	if err := json.Unmarshal(body, &config); err != nil {
 		return nil, fmt.Errorf("unmarshaling config: %w", err)
 	}
@@ -178,15 +159,15 @@ func (s *SDK) fetchTenantConfig(ctx context.Context, tenant string) (TenantConfi
 	return config, nil
 }
 
-// getTenantConfig gets the tenant configuration with caching support
-func (s *SDK) getTenantConfig(ctx context.Context, tenant string) (TenantConfig, error) {
+// getHostConfig gets the host configuration with caching support
+func (s *SDK) getHostConfig(ctx context.Context, host string) (HostConfig, error) {
 	if s.config.DisableCache {
-		return s.fetchTenantConfig(ctx, tenant)
+		return s.fetchHostConfig(ctx, host)
 	}
 
 	// Check cache
 	s.cache.mu.RLock()
-	if entry, exists := s.cache.entries[tenant]; exists {
+	if entry, exists := s.cache.entries[host]; exists {
 		if time.Now().Before(entry.expiresAt) {
 			s.cache.mu.RUnlock()
 			// Return cached error or data
@@ -199,13 +180,13 @@ func (s *SDK) getTenantConfig(ctx context.Context, tenant string) (TenantConfig,
 	s.cache.mu.RUnlock()
 
 	// Fetch from source
-	config, err := s.fetchTenantConfig(ctx, tenant)
+	config, err := s.fetchHostConfig(ctx, host)
 
 	// Update cache with either success or error
 	s.cache.mu.Lock()
 	if err != nil {
 		// Cache the error for ErrorTTL duration
-		s.cache.entries[tenant] = &cacheEntry{
+		s.cache.entries[host] = &cacheEntry{
 			err:       err,
 			expiresAt: time.Now().Add(s.config.ErrorTTL),
 		}
@@ -214,7 +195,7 @@ func (s *SDK) getTenantConfig(ctx context.Context, tenant string) (TenantConfig,
 	}
 
 	// Cache successful response for CacheTTL duration
-	s.cache.entries[tenant] = &cacheEntry{
+	s.cache.entries[host] = &cacheEntry{
 		data:      config,
 		expiresAt: time.Now().Add(s.config.CacheTTL),
 	}
@@ -229,20 +210,20 @@ func (s *SDK) getValue(c echo.Context, key string) (interface{}, error) {
 		return nil, fmt.Errorf("key cannot be empty")
 	}
 
-	tenant := s.config.GetTenantFromContext(c)
-	if tenant == "" {
-		tenant = s.config.DefaultTenant
+	host := s.config.GetHostFromContext(c)
+	if host == "" {
+		host = s.config.DefaultHost
 	}
-	if tenant == "" {
-		return nil, fmt.Errorf("no tenant specified")
+	if host == "" {
+		return nil, fmt.Errorf("no host specified")
 	}
 
 	// Split the key by dots to handle nested paths
 	parts := strings.Split(key, ".")
 	rootKey := parts[0]
 
-	// Get tenant config
-	config, err := s.getTenantConfig(c.Request().Context(), tenant)
+	// Get host config
+	config, err := s.getHostConfig(c.Request().Context(), host)
 	if err != nil {
 		return nil, err
 	}
@@ -266,18 +247,18 @@ func (s *SDK) getValue(c echo.Context, key string) (interface{}, error) {
 		}
 	}
 
-	// Try fallback tenant if root key not found in primary tenant
-	if value == nil && s.config.FallbackTenant != "" && s.config.FallbackTenant != tenant {
-		fallbackConfig, err := s.getTenantConfig(c.Request().Context(), s.config.FallbackTenant)
+	// Try fallback host if root key not found in primary host
+	if value == nil && s.config.FallbackHost != "" && s.config.FallbackHost != host {
+		fallbackConfig, err := s.getHostConfig(c.Request().Context(), s.config.FallbackHost)
 		if err == nil {
-			// Start with wildcard value from fallback tenant
+			// Start with wildcard value from fallback host
 			if wildcardConfig, exists := fallbackConfig["*"]; exists {
 				if v, ok := wildcardConfig[rootKey]; ok {
 					value = v
 				}
 			}
 
-			// Override with user-specific value from fallback tenant if available
+			// Override with user-specific value from fallback host if available
 			if user != "" {
 				if userConfig, exists := fallbackConfig[user]; exists {
 					if v, ok := userConfig[rootKey]; ok {
@@ -323,51 +304,51 @@ func (s *SDK) ClearCache() {
 	s.cache.entries = make(map[string]*cacheEntry)
 }
 
-// ClearTenantCache clears cache for a specific tenant
-func (s *SDK) ClearTenantCache(tenant string) {
+// ClearHostCache clears cache for a specific host
+func (s *SDK) ClearHostCache(host string) {
 	s.cache.mu.Lock()
 	defer s.cache.mu.Unlock()
-	delete(s.cache.entries, tenant)
+	delete(s.cache.entries, host)
 }
 
-// EnsureLoaded ensures that at least one successful fetch has occurred for the tenant.
+// EnsureLoaded ensures that at least one successful fetch has occurred for the host.
 // In single-file mode (FlagsURL set), it performs one fetch for the static file.
-// In multihost mode, it performs a synchronous fetch for the primary tenant and fallback tenant (if configured).
+// In multihost mode, it performs a synchronous fetch for the primary host and fallback host (if configured).
 // Returns error if fetches fail, nil if at least one succeeds.
 func (s *SDK) EnsureLoaded(c echo.Context) error {
 	ctx := c.Request().Context()
-	
+
 	// Single-file mode - just fetch the static file once
 	if s.config.FlagsURL != "" {
-		_, err := s.getTenantConfig(ctx, "_static_")
+		_, err := s.getHostConfig(ctx, "*")
 		return err
 	}
-	
+
 	// Multihost mode
-	tenant := s.config.GetTenantFromContext(c)
-	if tenant == "" {
-		tenant = s.config.DefaultTenant
+	host := s.config.GetHostFromContext(c)
+	if host == "" {
+		host = s.config.DefaultHost
 	}
-	if tenant == "" {
-		return fmt.Errorf("no tenant specified")
+	if host == "" {
+		return fmt.Errorf("no host specified")
 	}
-	
-	// Try to load primary tenant
-	_, primaryErr := s.getTenantConfig(ctx, tenant)
-	
-	// If fallback tenant is configured and different from primary, try it too
-	if s.config.FallbackTenant != "" && s.config.FallbackTenant != tenant {
-		_, fallbackErr := s.getTenantConfig(ctx, s.config.FallbackTenant)
-		
-		// Success if either tenant loaded successfully
+
+	// Try to load primary host
+	_, primaryErr := s.getHostConfig(ctx, host)
+
+	// If fallback host is configured and different from primary, try it too
+	if s.config.FallbackHost != "" && s.config.FallbackHost != host {
+		_, fallbackErr := s.getHostConfig(ctx, s.config.FallbackHost)
+
+		// Success if either host loaded successfully
 		if primaryErr == nil || fallbackErr == nil {
 			return nil
 		}
-		
+
 		// Both failed - return the primary error as it's more relevant
 		return fmt.Errorf("failed to load tenant configs - primary: %w", primaryErr)
 	}
-	
+
 	// Only primary tenant, return its result
 	return primaryErr
 }

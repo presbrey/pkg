@@ -15,17 +15,17 @@ func TestFluentAPI(t *testing.T) {
 	defer server.Close()
 
 	sdk := NewWithConfig(Config{
-		MultihostBase:  server.URL,
-		DefaultTenant: "tenant1",
+		MultihostBase: server.URL,
+		DefaultHost:   "host1",
 	})
 
 	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "http://tenant1/", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://host1/", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
 	// Create a second context with a user
-	userReq := httptest.NewRequest(http.MethodGet, "http://tenant1/", nil)
+	userReq := httptest.NewRequest(http.MethodGet, "http://host1/", nil)
 	userRec := httptest.NewRecorder()
 	userC := e.NewContext(userReq, userRec)
 	userC.Set("user", "user@example.com")
