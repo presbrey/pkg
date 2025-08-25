@@ -108,11 +108,18 @@ func TestNewWithConfig(t *testing.T) {
 }
 
 func TestNewSingleFile(t *testing.T) {
-	server := mockServer(t)
+	// Serve the example flags.json file
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/flags.json" {
+			http.ServeFile(w, r, "examples/flags.json")
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
 	defer server.Close()
 
 	t.Run("creates SDK with single file URL", func(t *testing.T) {
-		sdk := New(server.URL + "/tenant1.json")
+		sdk := New(server.URL + "/flags.json")
 
 		assert.NotNil(t, sdk)
 		assert.NotNil(t, sdk.config.HTTPClient)
@@ -120,7 +127,7 @@ func TestNewSingleFile(t *testing.T) {
 		assert.Equal(t, 1*time.Minute, sdk.config.ErrorTTL)
 		assert.NotNil(t, sdk.config.GetUserFromContext)
 		assert.NotNil(t, sdk.config.GetTenantFromContext)
-		assert.Equal(t, server.URL+"/tenant1.json", sdk.config.FlagsURL)
+		assert.Equal(t, server.URL+"/flags.json", sdk.config.FlagsURL)
 		
 		// Test that tenant extraction always returns "_static_"
 		e := echo.New()
@@ -131,7 +138,7 @@ func TestNewSingleFile(t *testing.T) {
 	})
 
 	t.Run("single file mode ignores request host", func(t *testing.T) {
-		sdk := New(server.URL + "/tenant1.json")
+		sdk := New(server.URL + "/flags.json")
 		
 		e := echo.New()
 		
@@ -144,14 +151,41 @@ func TestNewSingleFile(t *testing.T) {
 		rec2 := httptest.NewRecorder()
 		c2 := e.NewContext(req2, rec2)
 		
-		// Both should get the same values from tenant1.json
-		val1, err1 := sdk.GetBool(c1, "feature1")
+		// Both should get the same values from flags.json
+		val1, err1 := sdk.GetBool(c1, "enableNewFeature")
 		require.NoError(t, err1)
 		assert.True(t, val1)
 		
-		val2, err2 := sdk.GetBool(c2, "feature1")
+		val2, err2 := sdk.GetBool(c2, "enableNewFeature")
 		require.NoError(t, err2)
 		assert.True(t, val2)
+	})
+
+	t.Run("single file mode with user overrides", func(t *testing.T) {
+		sdk := New(server.URL + "/flags.json")
+		
+		e := echo.New()
+		
+		// Test wildcard value
+		req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		
+		maxConn, err := sdk.GetInt(c, "maxConnections")
+		require.NoError(t, err)
+		assert.Equal(t, 100, maxConn)
+		
+		// Test admin user override
+		c.Set("user", "admin@example.com")
+		maxConn, err = sdk.GetInt(c, "maxConnections")
+		require.NoError(t, err)
+		assert.Equal(t, 500, maxConn)
+		
+		// Test beta user with nested config
+		c.Set("user", "beta-user@example.com")
+		version, err := sdk.GetString(c, "apiConfig.version")
+		require.NoError(t, err)
+		assert.Equal(t, "2.1-beta", version)
 	})
 }
 
@@ -953,7 +987,17 @@ func TestEnsureLoaded(t *testing.T) {
 	e := echo.New()
 
 	t.Run("single-file mode ensures static file loaded", func(t *testing.T) {
-		sdk := New(server.URL + "/tenant1.json")
+		// Create a server that serves the example flags.json
+		exampleServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/flags.json" {
+				http.ServeFile(w, r, "examples/flags.json")
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer exampleServer.Close()
+		
+		sdk := New(exampleServer.URL + "/flags.json")
 
 		req := httptest.NewRequest(http.MethodGet, "http://anydomain/", nil)
 		rec := httptest.NewRecorder()
@@ -967,6 +1011,11 @@ func TestEnsureLoaded(t *testing.T) {
 		_, exists := sdk.cache.entries["_static_"]
 		sdk.cache.mu.RUnlock()
 		assert.True(t, exists)
+		
+		// Verify we can now get values from the loaded config
+		enabled, err := sdk.GetBool(c, "enableNewFeature")
+		require.NoError(t, err)
+		assert.True(t, enabled)
 	})
 
 	t.Run("single-file mode handles error", func(t *testing.T) {

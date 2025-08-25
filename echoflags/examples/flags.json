@@ -1,0 +1,43 @@
+{
+  "*": {
+    "enableNewFeature": true,
+    "maxConnections": 100,
+    "timeout": 30.5,
+    "supportedRegions": ["us-east-1", "us-west-2", "eu-west-1"],
+    "apiConfig": {
+      "version": "2.0",
+      "rateLimits": {
+        "perMinute": 60,
+        "perHour": 3600
+      },
+      "features": {
+        "caching": true,
+        "compression": false
+      }
+    },
+    "maintenanceMode": false
+  },
+  "admin@example.com": {
+    "enableNewFeature": true,
+    "maxConnections": 500,
+    "timeout": 60.0,
+    "supportedRegions": ["us-east-1", "us-west-2", "eu-west-1", "ap-south-1"],
+    "maintenanceMode": false
+  },
+  "beta-user@example.com": {
+    "enableNewFeature": true,
+    "maxConnections": 200,
+    "betaFeatures": true,
+    "apiConfig": {
+      "version": "2.1-beta",
+      "rateLimits": {
+        "perMinute": 120,
+        "perHour": 7200
+      },
+      "features": {
+        "caching": true,
+        "compression": true
+      }
+    }
+  }
+}
