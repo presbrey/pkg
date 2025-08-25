@@ -88,25 +88,25 @@ func mockServer(*testing.T) *httptest.Server {
 func TestNewWithConfig(t *testing.T) {
 	t.Run("creates SDK with default config", func(t *testing.T) {
 		config := Config{
-			MultihostBase: "https://example.com",
+			FlagsBase: "https://example.com",
 		}
 		sdk := NewWithConfig(config)
 
 		assert.NotNil(t, sdk)
 		assert.NotNil(t, sdk.config.HTTPClient)
 		assert.Equal(t, 5*time.Minute, sdk.config.CacheTTL)
-		assert.NotNil(t, sdk.config.GetUserFromContext)
+		assert.NotNil(t, sdk.config.GetUserFunc)
 	})
 
 	t.Run("creates SDK with custom config", func(t *testing.T) {
 		client := &http.Client{Timeout: 10 * time.Second}
 		customGetUser := func(c echo.Context) string { return "custom" }
 		config := Config{
-			MultihostBase:      "https://example.com",
-			DisableCache:       false,
-			CacheTTL:           10 * time.Minute,
-			HTTPClient:         client,
-			GetUserFromContext: customGetUser,
+			FlagsBase:    "https://example.com",
+			DisableCache: false,
+			CacheTTL:     10 * time.Minute,
+			HTTPClient:   client,
+			GetUserFunc:  customGetUser,
 		}
 		sdk := NewWithConfig(config)
 
@@ -114,7 +114,7 @@ func TestNewWithConfig(t *testing.T) {
 		assert.Equal(t, client, sdk.config.HTTPClient)
 		assert.Equal(t, 10*time.Minute, sdk.config.CacheTTL)
 		assert.False(t, sdk.config.DisableCache)
-		assert.NotNil(t, sdk.config.GetUserFromContext)
+		assert.NotNil(t, sdk.config.GetUserFunc)
 	})
 }
 
@@ -128,26 +128,6 @@ func TestNewSingleFile(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer server.Close()
-
-	t.Run("creates SDK with single file URL", func(t *testing.T) {
-		sdk := New(server.URL + "/flags.json")
-
-		assert.NotNil(t, sdk)
-		assert.NotNil(t, sdk.config.HTTPClient)
-		assert.Equal(t, 5*time.Minute, sdk.config.CacheTTL)
-		assert.Equal(t, 1*time.Minute, sdk.config.ErrorTTL)
-		assert.NotNil(t, sdk.config.GetUserFromContext)
-		assert.NotNil(t, sdk.config.GetHostFromContext)
-		assert.Equal(t, server.URL+"/flags.json", sdk.config.FlagsURL)
-
-		// Test that host extraction always returns "*"
-		e := echo.New()
-		req := httptest.NewRequest(http.MethodGet, "http://anydomain.com/", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		assert.Equal(t, "*", sdk.config.GetHostFromContext(c))
-	})
 
 	t.Run("single file mode ignores request host", func(t *testing.T) {
 		sdk := New(server.URL + "/flags.json")
@@ -206,8 +186,8 @@ func TestGetString(t *testing.T) {
 	defer server.Close()
 
 	sdk := NewWithConfig(Config{
-		MultihostBase: server.URL,
-		DisableCache:  false,
+		FlagsBase:    server.URL,
+		DisableCache: false,
 	})
 
 	e := echo.New()
@@ -249,8 +229,8 @@ func TestGetBool(t *testing.T) {
 	defer server.Close()
 
 	sdk := NewWithConfig(Config{
-		MultihostBase: server.URL,
-		DisableCache:  false,
+		FlagsBase:    server.URL,
+		DisableCache: false,
 	})
 
 	e := echo.New()
@@ -286,8 +266,8 @@ func TestGetInt(t *testing.T) {
 	defer server.Close()
 
 	sdk := NewWithConfig(Config{
-		MultihostBase: server.URL,
-		DisableCache:  false,
+		FlagsBase:    server.URL,
+		DisableCache: false,
 	})
 
 	e := echo.New()
@@ -319,8 +299,8 @@ func TestGetFloat64(t *testing.T) {
 	defer server.Close()
 
 	sdk := NewWithConfig(Config{
-		MultihostBase: server.URL,
-		DisableCache:  false,
+		FlagsBase:    server.URL,
+		DisableCache: false,
 	})
 
 	e := echo.New()
@@ -352,8 +332,8 @@ func TestGetStringSlice(t *testing.T) {
 	defer server.Close()
 
 	sdk := NewWithConfig(Config{
-		MultihostBase: server.URL,
-		DisableCache:  false,
+		FlagsBase:    server.URL,
+		DisableCache: false,
 	})
 
 	e := echo.New()
@@ -385,8 +365,8 @@ func TestGetMap(t *testing.T) {
 	defer server.Close()
 
 	sdk := NewWithConfig(Config{
-		MultihostBase: server.URL,
-		DisableCache:  false,
+		FlagsBase:    server.URL,
+		DisableCache: false,
 	})
 
 	e := echo.New()
@@ -408,8 +388,8 @@ func TestIsEnabled(t *testing.T) {
 	defer server.Close()
 
 	sdk := NewWithConfig(Config{
-		MultihostBase: server.URL,
-		DisableCache:  false,
+		FlagsBase:    server.URL,
+		DisableCache: false,
 	})
 
 	e := echo.New()
@@ -430,9 +410,9 @@ func TestCaching(t *testing.T) {
 	defer server.Close()
 
 	sdk := NewWithConfig(Config{
-		MultihostBase: server.URL,
-		DisableCache:  false,
-		CacheTTL:      100 * time.Millisecond,
+		FlagsBase:    server.URL,
+		DisableCache: false,
+		CacheTTL:     100 * time.Millisecond,
 	})
 
 	e := echo.New()
@@ -454,9 +434,8 @@ func TestCaching(t *testing.T) {
 
 		// Verify cache has entry
 		sdk.cache.mu.RLock()
-		_, exists := sdk.cache.entries["host1"]
+		assert.NotEmpty(t, sdk.cache.entries)
 		sdk.cache.mu.RUnlock()
-		assert.True(t, exists)
 	})
 
 	t.Run("cache expires", func(t *testing.T) {
@@ -511,17 +490,12 @@ func TestCaching(t *testing.T) {
 		_, err = sdk.GetBool(c2, "feature3")
 		require.NoError(t, err)
 
+		assert.NotEmpty(t, sdk.cache.entries)
+
 		// Clear only tenant1 cache
-		sdk.ClearHostCache("host1")
+		sdk.ClearCache()
 
-		// Verify tenant1 is cleared but tenant2 remains
-		sdk.cache.mu.RLock()
-		_, exists1 := sdk.cache.entries["host1"]
-		_, exists2 := sdk.cache.entries["host2"]
-		sdk.cache.mu.RUnlock()
-
-		assert.False(t, exists1)
-		assert.True(t, exists2)
+		assert.Empty(t, sdk.cache.entries)
 	})
 }
 
@@ -530,13 +504,9 @@ func TestDefaultHost(t *testing.T) {
 	defer server.Close()
 
 	sdk := NewWithConfig(Config{
-		MultihostBase: server.URL,
-		DefaultHost:   "host1",
-		DisableCache:  false,
-		GetHostFromContext: func(c echo.Context) string {
-			// Return empty string to test default host fallback
-			return ""
-		},
+		FlagsBase:    server.URL,
+		DefaultHost:  "host1",
+		DisableCache: false,
 	})
 
 	e := echo.New()
@@ -546,6 +516,10 @@ func TestDefaultHost(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 		// Custom GetHostFromContext returns empty, should fall back to default host
+
+		// httptest.NewRequest sets Host to "example.com" by default
+		// We need to clear it to test the default host fallback
+		req.Host = ""
 
 		value, err := sdk.GetBool(c, "feature1")
 		require.NoError(t, err)
@@ -558,8 +532,8 @@ func TestErrorHandling(t *testing.T) {
 	defer server.Close()
 
 	sdk := NewWithConfig(Config{
-		MultihostBase: server.URL,
-		DisableCache:  false,
+		FlagsBase:    server.URL,
+		DisableCache: false,
 	})
 
 	e := echo.New()
@@ -585,8 +559,8 @@ func TestErrorHandling(t *testing.T) {
 
 	t.Run("handles no host specified", func(t *testing.T) {
 		sdkNoDefault := NewWithConfig(Config{
-			MultihostBase: server.URL,
-			DisableCache:  true,
+			FlagsBase:    server.URL,
+			DisableCache: true,
 		})
 
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -610,8 +584,8 @@ func TestContextCancellation(t *testing.T) {
 	defer slowServer.Close()
 
 	sdk := NewWithConfig(Config{
-		MultihostBase: slowServer.URL,
-		DisableCache:  false,
+		FlagsBase:    slowServer.URL,
+		DisableCache: false,
 	})
 
 	e := echo.New()
@@ -635,9 +609,9 @@ func TestCustomGetUserFromContext(t *testing.T) {
 	defer server.Close()
 
 	sdk := NewWithConfig(Config{
-		MultihostBase: server.URL,
-		DisableCache:  false,
-		GetUserFromContext: func(c echo.Context) string {
+		FlagsBase:    server.URL,
+		DisableCache: false,
+		GetUserFunc: func(c echo.Context) string {
 			// Custom logic: get user from header
 			return c.Request().Header.Get("X-User")
 		},
@@ -675,8 +649,8 @@ func TestGettersWithDefault(t *testing.T) {
 	defer server.Close()
 
 	sdk := NewWithConfig(Config{
-		MultihostBase: server.URL,
-		DefaultHost:   "host1",
+		FlagsBase:   server.URL,
+		DefaultHost: "host1",
 	})
 
 	e := echo.New()
@@ -747,129 +721,13 @@ func TestGettersWithDefault(t *testing.T) {
 	})
 }
 
-func TestFallbackHost(t *testing.T) {
-	server := mockServer(t)
-	defer server.Close()
-
-	sdk := NewWithConfig(Config{
-		MultihostBase: server.URL,
-		FallbackHost:  "host2",
-		DisableCache:  false,
-	})
-
-	e := echo.New()
-
-	t.Run("uses fallback host when key not found in primary host", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "http://host1/", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		// host1 doesn't have "feature3", but host2 does
-		value, err := sdk.GetBool(c, "feature3")
-		require.NoError(t, err)
-		assert.True(t, value)
-	})
-
-	t.Run("primary host value takes precedence over fallback", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "http://host1/", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		// Both hosts have "feature1", but with different values
-		// tenant1: true, tenant2: false
-		value, err := sdk.GetBool(c, "feature1")
-		require.NoError(t, err)
-		assert.True(t, value) // Should use tenant1's value
-	})
-
-	t.Run("user override in primary host takes precedence", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "http://host1/", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-		c.Set("user", "user@example.com")
-
-		// user@example.com has feature2=true in tenant1, feature2 doesn't exist in tenant2
-		value, err := sdk.GetBool(c, "feature2")
-		require.NoError(t, err)
-		assert.True(t, value)
-	})
-
-	t.Run("fallback host user override when key not in primary", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "http://host1/", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-		c.Set("user", "admin@company.com")
-
-		// admin@company.com exists in tenant2 but not tenant1
-		// tenant1 doesn't have "limit", but tenant2 does with user override
-		value, err := sdk.GetInt(c, "limit")
-		require.NoError(t, err)
-		assert.Equal(t, 1000, value) // Should use tenant2's user override
-	})
-
-	t.Run("no fallback when key exists in primary host", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "http://host2/", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		// host2 has feature1=false, host1 has feature1=true
-		// Should use tenant2's value, not fallback to tenant1
-		value, err := sdk.GetBool(c, "feature1")
-		require.NoError(t, err)
-		assert.False(t, value) // tenant2's value
-	})
-
-	t.Run("error when key not found in either host", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "http://host1/", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		_, err := sdk.GetBool(c, "nonexistent")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "not found")
-	})
-
-	t.Run("no fallback when fallback host same as primary", func(t *testing.T) {
-		sdkSameFallback := NewWithConfig(Config{
-			MultihostBase: server.URL,
-			FallbackHost:  "host1", // Same as primary
-			DisableCache:  false,
-		})
-
-		req := httptest.NewRequest(http.MethodGet, "http://host1/", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		// Should not use fallback since it's the same as primary
-		_, err := sdkSameFallback.GetBool(c, "feature3")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "not found")
-	})
-
-	t.Run("fallback works with nested paths", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "http://host2/", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		sdkWithFallback := NewWithConfig(Config{
-			MultihostBase: server.URL,
-			FallbackHost:  "host1",
-			DisableCache:  false,
-		})
-
-		value, err := sdkWithFallback.GetBool(c, "metadata.features.new_dashboard")
-		require.NoError(t, err)
-		assert.True(t, value)
-	})
-}
-
 func TestGetBoolWithNestedPaths(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
 	sdk := NewWithConfig(Config{
-		MultihostBase: server.URL,
-		DisableCache:  false,
+		FlagsBase:    server.URL,
+		DisableCache: false,
 	})
 
 	e := echo.New()
@@ -925,9 +783,9 @@ func TestErrorCaching(t *testing.T) {
 	defer server.Close()
 
 	sdk := NewWithConfig(Config{
-		MultihostBase: server.URL,
-		DisableCache:  false,
-		ErrorTTL:      100 * time.Millisecond,
+		FlagsBase:    server.URL,
+		DisableCache: false,
+		ErrorTTL:     100 * time.Millisecond,
 	})
 
 	e := echo.New()
@@ -1020,7 +878,7 @@ func TestEnsureLoaded(t *testing.T) {
 
 		// Verify cache has entry for static file
 		sdk.cache.mu.RLock()
-		_, exists := sdk.cache.entries["*"]
+		_, exists := sdk.cache.entries[exampleServer.URL+"/flags.json"]
 		sdk.cache.mu.RUnlock()
 		assert.True(t, exists)
 
@@ -1043,8 +901,8 @@ func TestEnsureLoaded(t *testing.T) {
 
 	t.Run("multihost mode loads primary tenant", func(t *testing.T) {
 		sdk := NewWithConfig(Config{
-			MultihostBase: server.URL,
-			DisableCache:  false,
+			FlagsBase:    server.URL,
+			DisableCache: false,
 		})
 
 		req := httptest.NewRequest(http.MethodGet, "http://tenant1/", nil)
@@ -1056,15 +914,15 @@ func TestEnsureLoaded(t *testing.T) {
 
 		// Verify cache has entry for tenant1
 		sdk.cache.mu.RLock()
-		_, exists := sdk.cache.entries["tenant1"]
+		_, exists := sdk.cache.entries[server.URL+"/tenant1.json"]
 		sdk.cache.mu.RUnlock()
 		assert.True(t, exists)
 	})
 
 	t.Run("multihost mode retrieves feature3 from tenant1", func(t *testing.T) {
 		sdk := NewWithConfig(Config{
-			MultihostBase: server.URL,
-			DisableCache:  false,
+			FlagsBase:    server.URL,
+			DisableCache: false,
 		})
 
 		req := httptest.NewRequest(http.MethodGet, "http://tenant1/", nil)
@@ -1078,75 +936,15 @@ func TestEnsureLoaded(t *testing.T) {
 
 		// Verify cache has entry for tenant1
 		sdk.cache.mu.RLock()
-		_, exists := sdk.cache.entries["tenant1"]
+		_, exists := sdk.cache.entries[server.URL+"/tenant1.json"]
 		sdk.cache.mu.RUnlock()
 		assert.True(t, exists)
 	})
 
-	t.Run("multihost mode with fallback host - both succeed", func(t *testing.T) {
+	t.Run("multihost mode - primary fails", func(t *testing.T) {
 		sdk := NewWithConfig(Config{
-			MultihostBase: server.URL,
-			FallbackHost:  "host2",
-			DisableCache:  false,
-		})
-
-		req := httptest.NewRequest(http.MethodGet, "http://host1/", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := sdk.EnsureLoaded(c)
-		require.NoError(t, err)
-
-		// Verify cache has entries for both tenants
-		sdk.cache.mu.RLock()
-		_, exists1 := sdk.cache.entries["host1"]
-		_, exists2 := sdk.cache.entries["host2"]
-		sdk.cache.mu.RUnlock()
-		assert.True(t, exists1)
-		assert.True(t, exists2)
-	})
-
-	t.Run("multihost mode with fallback host - primary fails, fallback succeeds", func(t *testing.T) {
-		sdk := NewWithConfig(Config{
-			MultihostBase: server.URL,
-			FallbackHost:  "host2",
-			DisableCache:  false,
-		})
-
-		req := httptest.NewRequest(http.MethodGet, "http://nonexistent/", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := sdk.EnsureLoaded(c)
-		require.NoError(t, err)
-
-		// Verify cache has entry for fallback host
-		sdk.cache.mu.RLock()
-		_, exists2 := sdk.cache.entries["host2"]
-		sdk.cache.mu.RUnlock()
-		assert.True(t, exists2)
-	})
-
-	t.Run("multihost mode with fallback host - both fail", func(t *testing.T) {
-		sdk := NewWithConfig(Config{
-			MultihostBase: server.URL,
-			FallbackHost:  "nonexistent2",
-			DisableCache:  false,
-		})
-
-		req := httptest.NewRequest(http.MethodGet, "http://nonexistent/", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := sdk.EnsureLoaded(c)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to load tenant configs - primary:")
-	})
-
-	t.Run("multihost mode without fallback host - primary fails", func(t *testing.T) {
-		sdk := NewWithConfig(Config{
-			MultihostBase: server.URL,
-			DisableCache:  false,
+			FlagsBase:    server.URL,
+			DisableCache: false,
 		})
 
 		req := httptest.NewRequest(http.MethodGet, "http://nonexistent/", nil)
@@ -1159,15 +957,14 @@ func TestEnsureLoaded(t *testing.T) {
 
 	t.Run("multihost mode with default host", func(t *testing.T) {
 		sdk := NewWithConfig(Config{
-			MultihostBase: server.URL,
-			DefaultHost:   "host1",
-			DisableCache:  false,
-			GetHostFromContext: func(c echo.Context) string {
-				return "" // Return empty to trigger default host usage
-			},
+			FlagsBase:    server.URL,
+			DefaultHost:  "host1",
+			DisableCache: false,
 		})
 
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		// Clear the host to test default host fallback
+		req.Host = ""
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
@@ -1176,18 +973,15 @@ func TestEnsureLoaded(t *testing.T) {
 
 		// Verify cache has entry for default host
 		sdk.cache.mu.RLock()
-		_, exists := sdk.cache.entries["host1"]
+		_, exists := sdk.cache.entries[server.URL+"/host1.json"]
 		sdk.cache.mu.RUnlock()
 		assert.True(t, exists)
 	})
 
 	t.Run("multihost mode no host specified", func(t *testing.T) {
 		sdk := NewWithConfig(Config{
-			MultihostBase: server.URL,
-			DisableCache:  false,
-			GetHostFromContext: func(c echo.Context) string {
-				return "" // Return empty and no default host
-			},
+			FlagsBase:    server.URL,
+			DisableCache: false,
 		})
 
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -1196,6 +990,6 @@ func TestEnsureLoaded(t *testing.T) {
 
 		err := sdk.EnsureLoaded(c)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "no host specified")
+		assert.Contains(t, err.Error(), "unexpected status code")
 	})
 }

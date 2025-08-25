@@ -15,7 +15,7 @@ func TestFluentAPI(t *testing.T) {
 	defer server.Close()
 
 	sdk := NewWithConfig(Config{
-		MultihostBase: server.URL,
+		FlagsBase: server.URL,
 		DefaultHost:   "host1",
 	})
 

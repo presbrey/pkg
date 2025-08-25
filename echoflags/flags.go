@@ -13,14 +13,25 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+var ContextHost = func(c echo.Context) string {
+	if h := c.Request().Host; h != "" {
+		return h
+	} else if h := c.Request().URL.Host; h != "" {
+		return h
+	}
+	return ""
+}
+
 // Config holds the SDK configuration
 type Config struct {
 	// FlagsURL is the URL for a single static configuration file (used in single file mode)
+	// When set, FlagsBase is ignored and the SDK operates in single-file mode
 	FlagsURL string
 
-	// MultihostBase is the base URL for the HTTP repository containing tenant JSON files
-	// Example: "https://raw.githubusercontent.com/org/repo/main/tenants"
-	MultihostBase string
+	// FlagsBase is the base URL for the HTTP repository containing host JSON files
+	// Example: "https://raw.githubusercontent.com/org/repo/main/hosts"
+	// Only used when FlagsURL is empty
+	FlagsBase string
 
 	// DisableCache disables caching when set to true
 	DisableCache bool
@@ -34,17 +45,20 @@ type Config struct {
 	// HTTPClient allows custom HTTP client configuration
 	HTTPClient *http.Client
 
-	// DefaultHost is used when no host is specified
+	// DefaultHost is used when no host is specified (multihost mode only)
 	DefaultHost string
 
 	// FallbackHost is used when a key is not found in the primary host
 	FallbackHost string
 
-	// GetHostFromContext allows custom logic to extract host from context
-	GetHostFromContext func(c echo.Context) string
+	// DefaultUser is used when no user is specified
+	DefaultUser string
 
-	// GetUserFromContext allows custom logic to extract user from context
-	GetUserFromContext func(c echo.Context) string
+	// GetFlagsURL allows custom logic to extract flag path from context
+	GetFlagsURL func(c echo.Context, host string) string
+
+	// GetUserFunc allows custom logic to extract user from context
+	GetUserFunc func(c echo.Context) string
 }
 
 // HostConfig represents the structure of a host's JSON configuration
@@ -84,21 +98,29 @@ func NewWithConfig(config Config) *SDK {
 		config.ErrorTTL = 1 * time.Minute
 	}
 
-	if config.GetHostFromContext == nil {
-		config.GetHostFromContext = func(c echo.Context) string {
-			if h := c.Request().Host; h != "" {
-				return h
+	if config.GetFlagsURL == nil {
+		config.GetFlagsURL = func(c echo.Context, host string) string {
+			if config.FlagsURL != "" {
+				// Single file mode - always use the same file
+				return config.FlagsURL
 			}
-			return c.Request().URL.Host
+
+			if host == "" {
+				host = ContextHost(c)
+			}
+			if host == "" {
+				host = config.DefaultHost
+			}
+			return fmt.Sprintf("%s/%s.json", config.FlagsBase, host)
 		}
 	}
 
-	if config.GetUserFromContext == nil {
-		config.GetUserFromContext = func(c echo.Context) string {
+	if config.GetUserFunc == nil {
+		config.GetUserFunc = func(c echo.Context) string {
 			if user, ok := c.Get("user").(string); ok {
 				return user
 			}
-			return ""
+			return config.DefaultUser
 		}
 	}
 
@@ -114,23 +136,11 @@ func NewWithConfig(config Config) *SDK {
 func New(flagsURL string) *SDK {
 	return NewWithConfig(Config{
 		FlagsURL: flagsURL,
-		GetHostFromContext: func(c echo.Context) string {
-			return "*"
-		},
 	})
 }
 
 // fetchHostConfig fetches the host configuration from HTTP
-func (s *SDK) fetchHostConfig(ctx context.Context, host string) (HostConfig, error) {
-	var url string
-	if s.config.FlagsURL != "" {
-		// Single file mode - always use the same file
-		url = s.config.FlagsURL
-	} else {
-		// Multihost mode - construct URL based on host
-		url = fmt.Sprintf("%s/%s.json", s.config.MultihostBase, host)
-	}
-
+func (s *SDK) fetchHostConfig(ctx context.Context, url string) (HostConfig, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
@@ -160,14 +170,15 @@ func (s *SDK) fetchHostConfig(ctx context.Context, host string) (HostConfig, err
 }
 
 // getHostConfig gets the host configuration with caching support
-func (s *SDK) getHostConfig(ctx context.Context, host string) (HostConfig, error) {
+func (s *SDK) getHostConfig(c echo.Context, host string) (HostConfig, error) {
+	flagsURL := s.config.GetFlagsURL(c, host)
 	if s.config.DisableCache {
-		return s.fetchHostConfig(ctx, host)
+		return s.fetchHostConfig(c.Request().Context(), flagsURL)
 	}
 
 	// Check cache
 	s.cache.mu.RLock()
-	if entry, exists := s.cache.entries[host]; exists {
+	if entry, exists := s.cache.entries[flagsURL]; exists {
 		if time.Now().Before(entry.expiresAt) {
 			s.cache.mu.RUnlock()
 			// Return cached error or data
@@ -180,13 +191,13 @@ func (s *SDK) getHostConfig(ctx context.Context, host string) (HostConfig, error
 	s.cache.mu.RUnlock()
 
 	// Fetch from source
-	config, err := s.fetchHostConfig(ctx, host)
+	config, err := s.fetchHostConfig(c.Request().Context(), flagsURL)
 
 	// Update cache with either success or error
 	s.cache.mu.Lock()
 	if err != nil {
 		// Cache the error for ErrorTTL duration
-		s.cache.entries[host] = &cacheEntry{
+		s.cache.entries[flagsURL] = &cacheEntry{
 			err:       err,
 			expiresAt: time.Now().Add(s.config.ErrorTTL),
 		}
@@ -195,7 +206,7 @@ func (s *SDK) getHostConfig(ctx context.Context, host string) (HostConfig, error
 	}
 
 	// Cache successful response for CacheTTL duration
-	s.cache.entries[host] = &cacheEntry{
+	s.cache.entries[flagsURL] = &cacheEntry{
 		data:      config,
 		expiresAt: time.Now().Add(s.config.CacheTTL),
 	}
@@ -210,25 +221,18 @@ func (s *SDK) getValue(c echo.Context, key string) (interface{}, error) {
 		return nil, fmt.Errorf("key cannot be empty")
 	}
 
-	host := s.config.GetHostFromContext(c)
-	if host == "" {
-		host = s.config.DefaultHost
-	}
-	if host == "" {
-		return nil, fmt.Errorf("no host specified")
-	}
-
 	// Split the key by dots to handle nested paths
 	parts := strings.Split(key, ".")
 	rootKey := parts[0]
 
 	// Get host config
-	config, err := s.getHostConfig(c.Request().Context(), host)
+	host := ContextHost(c)
+	config, err := s.getHostConfig(c, host)
 	if err != nil {
 		return nil, err
 	}
 
-	user := s.config.GetUserFromContext(c)
+	user := s.config.GetUserFunc(c)
 
 	// Start with wildcard value for root key
 	var value interface{}
@@ -249,7 +253,7 @@ func (s *SDK) getValue(c echo.Context, key string) (interface{}, error) {
 
 	// Try fallback host if root key not found in primary host
 	if value == nil && s.config.FallbackHost != "" && s.config.FallbackHost != host {
-		fallbackConfig, err := s.getHostConfig(c.Request().Context(), s.config.FallbackHost)
+		fallbackConfig, err := s.getHostConfig(c, s.config.FallbackHost)
 		if err == nil {
 			// Start with wildcard value from fallback host
 			if wildcardConfig, exists := fallbackConfig["*"]; exists {
@@ -304,51 +308,18 @@ func (s *SDK) ClearCache() {
 	s.cache.entries = make(map[string]*cacheEntry)
 }
 
-// ClearHostCache clears cache for a specific host
-func (s *SDK) ClearHostCache(host string) {
+// ClearCacheKey clears cache for a specific key
+func (s *SDK) ClearCacheKey(key string) {
 	s.cache.mu.Lock()
 	defer s.cache.mu.Unlock()
-	delete(s.cache.entries, host)
+	delete(s.cache.entries, key)
 }
 
 // EnsureLoaded ensures that at least one successful fetch has occurred for the host.
 // In single-file mode (FlagsURL set), it performs one fetch for the static file.
-// In multihost mode, it performs a synchronous fetch for the primary host and fallback host (if configured).
-// Returns error if fetches fail, nil if at least one succeeds.
+// In multihost mode, it performs a synchronous fetch for the primary host.
+// Returns error if fetch fails, nil if it succeeds.
 func (s *SDK) EnsureLoaded(c echo.Context) error {
-	ctx := c.Request().Context()
-
-	// Single-file mode - just fetch the static file once
-	if s.config.FlagsURL != "" {
-		_, err := s.getHostConfig(ctx, "*")
-		return err
-	}
-
-	// Multihost mode
-	host := s.config.GetHostFromContext(c)
-	if host == "" {
-		host = s.config.DefaultHost
-	}
-	if host == "" {
-		return fmt.Errorf("no host specified")
-	}
-
-	// Try to load primary host
-	_, primaryErr := s.getHostConfig(ctx, host)
-
-	// If fallback host is configured and different from primary, try it too
-	if s.config.FallbackHost != "" && s.config.FallbackHost != host {
-		_, fallbackErr := s.getHostConfig(ctx, s.config.FallbackHost)
-
-		// Success if either host loaded successfully
-		if primaryErr == nil || fallbackErr == nil {
-			return nil
-		}
-
-		// Both failed - return the primary error as it's more relevant
-		return fmt.Errorf("failed to load tenant configs - primary: %w", primaryErr)
-	}
-
-	// Only primary tenant, return its result
-	return primaryErr
+	_, err := s.getHostConfig(c, "")
+	return err
 }
