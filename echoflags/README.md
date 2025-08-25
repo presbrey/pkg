@@ -1,18 +1,18 @@
 # Feature Flags SDK for Go
 
-A powerful and flexible feature flags SDK for Go applications using Echo framework. This SDK fetches tenant-specific configuration from a GitHub repository and provides typed getters with user-level overrides, fallback tenants, and caching support.
+A powerful and flexible feature flags SDK for Go applications using the Echo framework. This SDK fetches host-specific configuration from a remote URL (like a GitHub repository) and provides typed getters with user-level overrides, a base configuration for defaults, and caching support.
 
 ## Features
 
-- 🚀 **Typed Getters**: Support for string, bool, int, float64, string slice, and map types
-- 👤 **User-Level Overrides**: Wildcard defaults with user-specific overrides
-- 🔄 **Fallback Tenants**: Automatic fallback to another tenant when keys are not found
-- 🌐 **Flexible Tenant Extraction**: Extract tenant from request host or custom logic
-- 🗂️ **Nested Path Support**: Access nested configuration values with dot notation
-- 💾 **Configurable Caching**: Built-in caching with configurable TTL
-- 🔄 **Echo Integration**: Seamless integration with Echo web framework
-- 🧪 **Well-Tested**: Comprehensive test coverage with 55+ test cases
-- ⚡ **Thread-Safe**: Concurrent-safe operations
+- 🚀 **Typed Getters**: Support for string, bool, int, float64, string slice, and map types.
+- 👤 **User-Level Overrides**: Wildcard defaults with user-specific overrides.
+- 🏠 **Base Host Configuration**: Use a base configuration file that is merged with the host-specific configuration for shared defaults.
+- 🌐 **Fluent API**: A convenient fluent API for accessing flags within a request context.
+- 🗂️ **Nested Path Support**: Access nested configuration values with dot notation.
+- 💾 **Configurable Caching**: Built-in caching with configurable TTL for both successful fetches and errors.
+- 🔄 **Echo Integration**: Seamless integration with the Echo web framework.
+- 🧪 **Well-Tested**: Comprehensive test coverage.
+- ⚡ **Thread-Safe**: Concurrent-safe operations.
 
 ## Installation
 
@@ -24,7 +24,7 @@ go get github.com/presbrey/pkg/echoflags
 
 ### JSON File Format
 
-Each tenant has a JSON file in your GitHub repository with the following structure:
+Each host has a JSON file with the following structure:
 
 ```json
 {
@@ -48,12 +48,14 @@ Each tenant has a JSON file in your GitHub repository with the following structu
 }
 ```
 
-- `"*"`: Default configuration for all users
-- User-specific keys (e.g., `"user@example.com"`): Override values for specific users
+- `"*"`: Default configuration for all users.
+- User-specific keys (e.g., `"user@example.com"`): Override values for specific users.
 
 ## Usage
 
 ### Basic Setup - Single File Mode
+
+This mode is ideal when all your flags are in a single file.
 
 ```go
 package main
@@ -67,23 +69,21 @@ func main() {
     // Simple setup with a single configuration file
     sdk := echoflags.New("https://raw.githubusercontent.com/org/repo/main/config.json")
 
-    // Create Echo app
     e := echo.New()
 
-    // Use SDK in your handlers
     e.GET("/data", func(c echo.Context) error {
         // Set user in context (typically from authentication middleware)
         c.Set("user", "user@example.com")
 
-        // Check if feature is enabled
+        // Check if a feature is enabled
         if sdk.IsEnabled(c, "feature1") {
             // Feature is enabled
         }
 
         // Get typed values
-        maxItems, _ := sdk.GetInt(c, "maxItems")
-        discount, _ := sdk.GetFloat64(c, "discount")
-        regions, _ := sdk.GetStringSlice(c, "allowedRegions")
+        maxItems := sdk.GetIntWithDefault(c, "maxItems", 0)
+        discount := sdk.GetFloat64WithDefault(c, "discount", 0.0)
+        regions := sdk.GetStringSliceWithDefault(c, "allowedRegions", nil)
 
         return c.JSON(200, map[string]interface{}{
             "maxItems": maxItems,
@@ -96,7 +96,9 @@ func main() {
 }
 ```
 
-### Advanced Setup - Multi-Tenant Mode
+### Advanced Setup - Multi-Host Mode
+
+This mode loads configuration based on the request's host and merges it with a base configuration file.
 
 ```go
 package main
@@ -108,45 +110,55 @@ import (
 )
 
 func main() {
-    // Advanced setup with multi-tenant support
+    // Advanced setup with multi-host support
     sdk := echoflags.NewWithConfig(echoflags.Config{
-        MultihostBase:  "https://raw.githubusercontent.com/org/repo/main/tenants",
-        CacheTTL:       5 * time.Minute,
-        DefaultTenant:  "default",
-        FallbackTenant: "global", // Fallback to "global" tenant when keys not found
+        FlagsBase: "https://raw.githubusercontent.com/org/repo/main/hosts",
+        BaseHost:  "base-host", // A base config to merge with the host's config
+        CacheTTL:  5 * time.Minute,
     })
 
-    // Create Echo app
     e := echo.New()
 
-    // Use SDK in your handlers
     e.GET("/data", func(c echo.Context) error {
         // Set user in context (typically from authentication middleware)
         c.Set("user", "user@example.com")
 
-        // Check if feature is enabled
+        // Check if a feature is enabled. This will check the host-specific config
+        // first, then the base-host config.
         if sdk.IsEnabled(c, "feature1") {
             // Feature is enabled
         }
 
-        // Get typed values (will fallback to "global" tenant if not found)
-        maxItems, _ := sdk.GetInt(c, "maxItems")
-        discount, _ := sdk.GetFloat64(c, "discount")
-        regions, _ := sdk.GetStringSlice(c, "allowedRegions")
-
         // Access nested configuration
-        version, _ := sdk.GetBool(c, "metadata.features.newDashboard")
+        // e.g., metadata.features.new_dashboard
+        newDashboard, _ := sdk.GetBool(c, "metadata.features.new_dashboard")
 
         return c.JSON(200, map[string]interface{}{
-            "maxItems":     maxItems,
-            "discount":     discount,
-            "regions":      regions,
-            "newDashboard": version,
+            "newDashboard": newDashboard,
         })
     })
 
     e.Start(":8080")
 }
+```
+
+### Fluent API
+
+For more concise code inside your handlers, you can use the fluent API.
+
+```go
+e.GET("/fluent", func(c echo.Context) error {
+    flags := sdk.WithContext(c)
+
+    // No need to pass the context `c` to every call
+    maxItems := flags.GetIntWithDefault("maxItems", 0)
+    isEnabled := flags.IsEnabled("feature1")
+
+    return c.JSON(200, map[string]interface{}{
+        "maxItems": maxItems,
+        "enabled": isEnabled,
+    })
+})
 ```
 
 ### Authentication Middleware
@@ -171,17 +183,19 @@ All getter methods support **dot notation** for accessing nested values (e.g., `
 
 ### Basic Getters
 
-- `GetString(c echo.Context, key string) (string, error)` - Get string value (supports dot notation)
-- `GetBool(c echo.Context, key string) (bool, error)` - Get boolean value (supports dot notation)
-- `GetInt(c echo.Context, key string) (int, error)` - Get integer value (supports dot notation)
-- `GetFloat64(c echo.Context, key string) (float64, error)` - Get float64 value (supports dot notation)
-- `GetStringSlice(c echo.Context, key string) ([]string, error)` - Get string slice value (supports dot notation)
-- `GetMap(c echo.Context, key string) (map[string]interface{}, error)` - Get map value (supports dot notation)
-- `IsEnabled(c echo.Context, key string) bool` - Check if boolean feature is enabled (returns false on error, supports dot notation)
+These methods return a value and an error if the key is not found or the type is wrong.
+
+- `GetString(c echo.Context, key string) (string, error)`
+- `GetBool(c echo.Context, key string) (bool, error)`
+- `GetInt(c echo.Context, key string) (int, error)`
+- `GetFloat64(c echo.Context, key string) (float64, error)`
+- `GetStringSlice(c echo.Context, key string) ([]string, error)`
+- `GetMap(c echo.Context, key string) (map[string]interface{}, error)`
+- `IsEnabled(c echo.Context, key string) bool` - A convenient helper that returns `false` on error.
 
 ### Default Value Getters (Recommended)
 
-These methods never return errors and provide fallback values:
+These methods never return errors and provide a fallback default value.
 
 - `GetStringWithDefault(c echo.Context, key string, defaultValue string) string`
 - `GetBoolWithDefault(c echo.Context, key string, defaultValue bool) bool`
@@ -190,105 +204,107 @@ These methods never return errors and provide fallback values:
 - `GetStringSliceWithDefault(c echo.Context, key string, defaultValue []string) []string`
 - `GetMapWithDefault(c echo.Context, key string, defaultValue map[string]interface{}) map[string]interface{}`
 
-### Usage Examples
+### Fluent API Getters
 
-```go
-// Simple key access
-enabled := sdk.GetBoolWithDefault(c, "feature1", false)
+The same methods are available on the `FlagSet` object returned by `sdk.WithContext(c)`.
 
-// Nested path access with dot notation
-dashboardEnabled := sdk.GetBoolWithDefault(c, "metadata.features.dashboard", false)
-maxUsers := sdk.GetIntWithDefault(c, "limits.maxUsers", 100)
-```
+- `fs.GetString(key string) (string, error)`
+- `fs.GetStringWithDefault(key string, defaultValue string) string`
+- `fs.IsEnabled(key string) bool`
+- ...and so on for all other types.
 
-#### Cache Management
+### Cache Management
 
 ```go
 // Clear all cache entries
 sdk.ClearCache()
 
-// Clear cache for specific tenant
-sdk.ClearTenantCache("tenant1")
+// Clear cache for a specific configuration URL
+// This is useful if you've updated a single flag file.
+flagsURL := "https://raw.githubusercontent.com/org/repo/main/hosts/tenant1.json"
+sdk.ClearCacheKey(flagsURL)
 ```
 
 ### Configuration Options
 
 ```go
 type Config struct {
-    // FlagsURL is the URL for a single static configuration file (used in single file mode)
+    // FlagsURL is the URL for a single static configuration file.
+    // If set, the SDK operates in single-file mode.
     FlagsURL string
 
-    // MultihostBase is the base URL for the HTTP repository containing tenant JSON files
-    // Example: "https://raw.githubusercontent.com/org/repo/main/tenants"
-    MultihostBase string
+    // FlagsBase is the base URL for the directory containing host JSON files.
+    // Example: "https://raw.githubusercontent.com/org/repo/main/hosts"
+    FlagsBase string
 
-    // DisableCache disables caching when set to true
+    // BaseHost is the name of the base configuration file (e.g., "base-config")
+    // to be merged with the host-specific configuration.
+    BaseHost string
+
+    // DisableCache disables caching when set to true.
     DisableCache bool
 
-    // Time-to-live for cached entries
-    // Default: 5 minutes
+    // CacheTTL is the time-to-live for cached entries.
+    // Default: 5 minutes.
     CacheTTL time.Duration
 
-    // ErrorTTL is the time-to-live for cached errors (404s, network errors, etc.)
-    // Default: 1 minute
+    // ErrorTTL is the time-to-live for cached errors (e.g., 404s).
+    // Default: 1 minute.
     ErrorTTL time.Duration
 
-    // Custom HTTP client (optional)
+    // HTTPClient allows providing a custom HTTP client.
     HTTPClient *http.Client
 
-    // Default tenant to use when none specified (optional)
-    DefaultTenant string
+    // DefaultUser is used as the user identifier when GetUserFunc returns an empty string.
+    DefaultUser string
 
-    // Fallback tenant to use when keys are not found in primary tenant (optional)
-    FallbackTenant string
+    // GetFlagsURL allows custom logic to build the flag file URL from the context.
+    GetFlagsURL func(c echo.Context, host string) string
 
-    // Custom function to extract tenant from Echo context (optional)
-    // Default: extracts from request host
-    GetTenantFromContext func(c echo.Context) string
-
-    // Custom function to extract user from Echo context (optional)
-    // Default: gets "user" from context
-    GetUserFromContext func(c echo.Context) string
+    // GetUserFunc allows custom logic to extract a user identifier from the context.
+    // Default: gets the "user" value from the context.
+    GetUserFunc func(c echo.Context) string
 }
 ```
 
 ## Advanced Usage
 
-### Fallback Tenant Configuration
+### Base Host Configuration
 
-The SDK supports automatic fallback to another tenant when a key is not found in the primary tenant. This is useful for providing default configurations or gradual feature rollouts.
+The SDK supports merging a `BaseHost` configuration with a host-specific configuration. This is useful for providing global defaults while allowing specific hosts to override them.
 
-```go
-sdk := echoflags.NewWithConfig(echoflags.Config{
-    MultihostBase:  "https://raw.githubusercontent.com/org/repo/main/tenants",
-    FallbackTenant: "global", // Fallback to "global" tenant
-})
+The merging logic is as follows:
+1.  The `BaseHost` configuration is loaded.
+2.  The host-specific configuration is loaded.
+3.  The two configurations are merged. For any given key, the host-specific value takes precedence. For nested maps, values are merged recursively. For arrays and other types, the host value replaces the base value entirely.
 
-// If "newFeature" doesn't exist in the primary tenant (e.g., "tenant1"),
-// it will automatically check the "global" tenant
-enabled := sdk.IsEnabled(c, "newFeature")
-```
+**Precedence Order for a resolved key:**
+1.  User-specific value from the host's file.
+2.  Wildcard (`"*"`) value from the host's file.
+3.  User-specific value from the `BaseHost` file (if not present in the host's file).
+4.  Wildcard (`"*"`) value from the `BaseHost` file (if not present in the host's file).
 
-**Precedence Order:**
-1. Primary tenant user-specific override
-2. Primary tenant wildcard (`"*"`) value
-3. Fallback tenant user-specific override
-4. Fallback tenant wildcard (`"*"`) value
-5. Error if not found in either tenant
+### Custom URL and User Extraction
 
-### Custom Tenant and User Extraction
+You can provide custom functions to control how the configuration URL is determined and how the user is identified.
 
 ```go
 sdk := echoflags.NewWithConfig(echoflags.Config{
-    MultihostBase: "https://raw.githubusercontent.com/org/repo/main/tenants",
-    GetTenantFromContext: func(c echo.Context) string {
-        // Extract tenant from custom header
-        return c.Request().Header.Get("X-Tenant-ID")
+    FlagsBase: "https://raw.githubusercontent.com/org/repo/main/hosts",
+    GetFlagsURL: func(c echo.Context, host string) string {
+        // Extract tenant from custom header to build the URL
+        tenant := c.Request().Header.Get("X-Tenant-ID")
+        if tenant == "" {
+            tenant = "default"
+        }
+        return fmt.Sprintf("https://raw.githubusercontent.com/org/repo/main/hosts/%s.json", tenant)
     },
-    GetUserFromContext: func(c echo.Context) string {
+    GetUserFunc: func(c echo.Context) string {
         // Extract user from JWT claims
-        token := c.Get("jwt-claims").(jwt.MapClaims)
-        return token["sub"].(string)
+        if token, ok := c.Get("jwt-claims").(jwt.MapClaims); ok {
+            return token["sub"].(string)
+        }
+        return "" // No user
     },
 })
 ```
@@ -297,7 +313,7 @@ sdk := echoflags.NewWithConfig(echoflags.Config{
 
 ```go
 sdk := echoflags.NewWithConfig(echoflags.Config{
-    MultihostBase: "https://raw.githubusercontent.com/org/repo/main/tenants",
+    FlagsBase: "https://raw.githubusercontent.com/org/repo/main/hosts",
     HTTPClient: &http.Client{
         Timeout: 10 * time.Second,
         Transport: &http.Transport{
@@ -338,31 +354,6 @@ func isFeatureEnabledForUser(c echo.Context) bool {
 }
 ```
 
-### Multi-Tenant Configuration with Fallback
-
-```go
-// Example: tenant-specific configuration with global defaults
-func getTenantLimits(c echo.Context) (int, int) {
-    // These will check tenant-specific config first, then fallback to "global" tenant
-    maxUsers := sdk.GetIntWithDefault(c, "maxUsers", 100)
-    maxStorage := sdk.GetIntWithDefault(c, "maxStorageGB", 10)
-    
-    return maxUsers, maxStorage
-}
-
-// Nested configuration access
-func getFeatureConfig(c echo.Context) map[string]bool {
-    features := make(map[string]bool)
-    
-    // Access nested configuration with fallback using dot notation
-    features["dashboard"] = sdk.GetBoolWithDefault(c, "features.dashboard", false)
-    features["analytics"] = sdk.GetBoolWithDefault(c, "features.analytics", false)
-    features["api"] = sdk.GetBoolWithDefault(c, "features.api", false)
-    
-    return features
-}
-```
-
 ## Testing
 
 Run the test suite:
@@ -380,28 +371,24 @@ go tool cover -html=coverage.out
 
 ## Repository Structure
 
-Your GitHub repository should have the following structure:
+When using multi-host mode, your repository can be structured like this:
 
 ```
 repo/
-├── tenants/
-│   ├── tenant1.json      # Tenant-specific configuration
-│   ├── tenant2.json      # Another tenant
-│   ├── tenant3.json      # Yet another tenant
-│   ├── global.json       # Global fallback configuration
-│   └── default.json      # Default tenant configuration
+└── hosts/
+    ├── tenant1.json      # Host-specific configuration
+    ├── tenant2.json      # Another host's configuration
+    └── base-host.json    # Base configuration for all hosts
 ```
 
 ## Best Practices
 
-1. **Use Caching**: Enable caching in production to reduce GitHub API calls
-2. **Set Default Tenant**: Configure a default tenant for fallback when no tenant is specified
-3. **Configure Fallback Tenant**: Use a fallback tenant for global defaults and gradual rollouts
-4. **Handle Errors**: Always handle errors from getter methods or use `*WithDefault` methods
-5. **User Context**: Set user in Echo context through authentication middleware
-6. **Cache Invalidation**: Clear cache when updating configuration files
-7. **Tenant Extraction**: By default, tenant is extracted from request host - customize if needed
-8. **Nested Configuration**: All getters support dot notation for nested values (e.g., `"features.dashboard"`)
+1.  **Use Caching**: Enable caching in production to reduce latency and API calls.
+2.  **Use a Base Host**: Configure a `BaseHost` for global defaults and shared configuration.
+3.  **Use `*WithDefault` Getters**: Prefer the `Get...WithDefault` methods to avoid panics and make your code more resilient to missing flags.
+4.  **Set User Context**: Set the user identifier in the Echo context, typically via an authentication middleware.
+5.  **Cache Invalidation**: Use `ClearCache()` or `ClearCacheKey()` if you need to force-reload configuration.
+6.  **Dot Notation**: Use dot notation (`"a.b.c"`) to access nested configuration values.
 
 ## Error Handling
 
@@ -410,7 +397,7 @@ repo/
 value, err := sdk.GetString(c, "key")
 if err != nil {
     if strings.Contains(err.Error(), "not found") {
-        // Key doesn't exist in primary or fallback tenant
+        // Key doesn't exist in the merged configuration
         return defaultValue
     }
     // Handle other errors (network, JSON parsing, etc.)
@@ -425,13 +412,12 @@ enabled := sdk.GetBoolWithDefault(c, "feature", false)
 
 ## Performance Considerations
 
-- **Caching**: Reduces network latency and GitHub API rate limits
-- **Error Caching**: Failed requests (404s, network errors) are cached for `ErrorTTL` duration to prevent repeated failures
-- **Fallback Tenants**: May result in additional HTTP requests when keys are not found
-- **Concurrent Access**: SDK is thread-safe for concurrent requests
-- **Memory Usage**: Cache stores parsed JSON for both primary and fallback tenants, plus cached errors
-- **Network Timeouts**: Configure appropriate HTTP client timeouts
-- **Request Batching**: Consider batching multiple flag checks in a single request
+- **Caching**: Reduces network latency and GitHub API rate limits.
+- **Error Caching**: Failed requests (404s, network errors) are cached for `ErrorTTL` duration to prevent repeated failures.
+- **Configuration Merging**: In multi-host mode, fetching and merging a base configuration may result in an additional HTTP request.
+- **Concurrent Access**: The SDK is thread-safe for concurrent requests.
+- **Memory Usage**: The cache stores parsed JSON for each configuration URL, plus any cached errors.
+- **Network Timeouts**: Configure appropriate HTTP client timeouts.
 
 ## Contributing
 
