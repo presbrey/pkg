@@ -53,7 +53,50 @@ Each tenant has a JSON file in your GitHub repository with the following structu
 
 ## Usage
 
-### Basic Setup
+### Basic Setup - Single File Mode
+
+```go
+package main
+
+import (
+    "github.com/labstack/echo/v4"
+    "github.com/presbrey/pkg/echoflags"
+)
+
+func main() {
+    // Simple setup with a single configuration file
+    sdk := echoflags.New("https://raw.githubusercontent.com/org/repo/main/config.json")
+
+    // Create Echo app
+    e := echo.New()
+
+    // Use SDK in your handlers
+    e.GET("/data", func(c echo.Context) error {
+        // Set user in context (typically from authentication middleware)
+        c.Set("user", "user@example.com")
+
+        // Check if feature is enabled
+        if sdk.IsEnabled(c, "feature1") {
+            // Feature is enabled
+        }
+
+        // Get typed values
+        maxItems, _ := sdk.GetInt(c, "maxItems")
+        discount, _ := sdk.GetFloat64(c, "discount")
+        regions, _ := sdk.GetStringSlice(c, "allowedRegions")
+
+        return c.JSON(200, map[string]interface{}{
+            "maxItems": maxItems,
+            "discount": discount,
+            "regions":  regions,
+        })
+    })
+
+    e.Start(":8080")
+}
+```
+
+### Advanced Setup - Multi-Tenant Mode
 
 ```go
 package main
@@ -65,10 +108,9 @@ import (
 )
 
 func main() {
-    // Initialize the SDK
-    sdk := echoflags.New(echoflags.Config{
-        GitHubRepoURL:  "https://raw.githubusercontent.com/org/repo/main/tenants",
-        CacheEnabled:   true,
+    // Advanced setup with multi-tenant support
+    sdk := echoflags.NewWithConfig(echoflags.Config{
+        MultihostBase:  "https://raw.githubusercontent.com/org/repo/main/tenants",
         CacheTTL:       5 * time.Minute,
         DefaultTenant:  "default",
         FallbackTenant: "global", // Fallback to "global" tenant when keys not found
@@ -93,7 +135,7 @@ func main() {
         regions, _ := sdk.GetStringSlice(c, "allowedRegions")
 
         // Access nested configuration
-        version, _ := sdk.GetBoolByPath(c, "metadata.features.newDashboard")
+        version, _ := sdk.GetBool(c, "metadata.features.newDashboard")
 
         return c.JSON(200, map[string]interface{}{
             "maxItems":     maxItems,
@@ -173,9 +215,12 @@ sdk.ClearTenantCache("tenant1")
 
 ```go
 type Config struct {
-    // Base URL for HTTP repository containing tenant JSON files
+    // FlagsURL is the URL for a single static configuration file (used in single file mode)
+    FlagsURL string
+
+    // MultihostBase is the base URL for the HTTP repository containing tenant JSON files
     // Example: "https://raw.githubusercontent.com/org/repo/main/tenants"
-    HTTPBaseURL string
+    MultihostBase string
 
     // DisableCache disables caching when set to true
     DisableCache bool
@@ -214,8 +259,8 @@ type Config struct {
 The SDK supports automatic fallback to another tenant when a key is not found in the primary tenant. This is useful for providing default configurations or gradual feature rollouts.
 
 ```go
-sdk := echoflags.New(echoflags.Config{
-    HTTPBaseURL:  "https://raw.githubusercontent.com/org/repo/main/tenants",
+sdk := echoflags.NewWithConfig(echoflags.Config{
+    MultihostBase:  "https://raw.githubusercontent.com/org/repo/main/tenants",
     FallbackTenant: "global", // Fallback to "global" tenant
 })
 
@@ -234,8 +279,8 @@ enabled := sdk.IsEnabled(c, "newFeature")
 ### Custom Tenant and User Extraction
 
 ```go
-sdk := echoflags.New(echoflags.Config{
-    HTTPBaseURL: "https://raw.githubusercontent.com/org/repo/main/tenants",
+sdk := echoflags.NewWithConfig(echoflags.Config{
+    MultihostBase: "https://raw.githubusercontent.com/org/repo/main/tenants",
     GetTenantFromContext: func(c echo.Context) string {
         // Extract tenant from custom header
         return c.Request().Header.Get("X-Tenant-ID")
@@ -251,8 +296,8 @@ sdk := echoflags.New(echoflags.Config{
 ### Custom HTTP Client
 
 ```go
-sdk := echoflags.New(echoflags.Config{
-    HTTPBaseURL: "https://raw.githubusercontent.com/org/repo/main/tenants",
+sdk := echoflags.NewWithConfig(echoflags.Config{
+    MultihostBase: "https://raw.githubusercontent.com/org/repo/main/tenants",
     HTTPClient: &http.Client{
         Timeout: 10 * time.Second,
         Transport: &http.Transport{
