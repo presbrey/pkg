@@ -15,9 +15,12 @@ import (
 
 // Config holds the SDK configuration
 type Config struct {
-	// HTTPBaseURL is the base URL for the HTTP repository containing tenant JSON files
+	// FlagsURL is the URL for a single static configuration file (used in single file mode)
+	FlagsURL string
+
+	// MultihostBase is the base URL for the HTTP repository containing tenant JSON files
 	// Example: "https://raw.githubusercontent.com/org/repo/main/tenants"
-	HTTPBaseURL string
+	MultihostBase string
 
 	// DisableCache disables caching when set to true
 	DisableCache bool
@@ -65,8 +68,8 @@ type cacheEntry struct {
 	expiresAt time.Time
 }
 
-// New creates a new SDK instance with the given configuration
-func New(config Config) *SDK {
+// NewWithConfig creates a new SDK instance with multi-tenant support based on request host
+func NewWithConfig(config Config) *SDK {
 	if config.HTTPClient == nil {
 		config.HTTPClient = &http.Client{
 			Timeout: 30 * time.Second,
@@ -107,9 +110,45 @@ func New(config Config) *SDK {
 	}
 }
 
+// New creates a new SDK instance that uses a single static configuration file
+func New(flagsURL string) *SDK {
+	config := Config{
+		FlagsURL: flagsURL,
+		HTTPClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+		CacheTTL: 5 * time.Minute,
+		ErrorTTL: 1 * time.Minute,
+		// Override tenant extraction to always return a fixed value
+		GetTenantFromContext: func(c echo.Context) string {
+			return "_static_"
+		},
+		GetUserFromContext: func(c echo.Context) string {
+			if user, ok := c.Get("user").(string); ok {
+				return user
+			}
+			return ""
+		},
+	}
+
+	return &SDK{
+		config: config,
+		cache: &cache{
+			entries: make(map[string]*cacheEntry),
+		},
+	}
+}
+
 // fetchTenantConfig fetches the tenant configuration from HTTP
 func (s *SDK) fetchTenantConfig(ctx context.Context, tenant string) (TenantConfig, error) {
-	url := fmt.Sprintf("%s/%s.json", s.config.HTTPBaseURL, tenant)
+	var url string
+	if s.config.FlagsURL != "" {
+		// Single file mode - always use the same file
+		url = s.config.FlagsURL
+	} else {
+		// Multi-tenant mode - construct URL based on tenant
+		url = fmt.Sprintf("%s/%s.json", s.config.MultihostBase, tenant)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {

@@ -14,8 +14,8 @@ func TestFluentAPI(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
-	sdk := New(Config{
-		HTTPBaseURL:   server.URL,
+	sdk := NewWithConfig(Config{
+		MultihostBase:  server.URL,
 		DefaultTenant: "tenant1",
 	})
 

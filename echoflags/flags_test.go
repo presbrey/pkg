@@ -74,12 +74,12 @@ func mockServer(t *testing.T) *httptest.Server {
 	return httptest.NewServer(mux)
 }
 
-func TestNew(t *testing.T) {
+func TestNewWithConfig(t *testing.T) {
 	t.Run("creates SDK with default config", func(t *testing.T) {
 		config := Config{
-			HTTPBaseURL: "https://example.com",
+			MultihostBase: "https://example.com",
 		}
-		sdk := New(config)
+		sdk := NewWithConfig(config)
 
 		assert.NotNil(t, sdk)
 		assert.NotNil(t, sdk.config.HTTPClient)
@@ -91,13 +91,13 @@ func TestNew(t *testing.T) {
 		client := &http.Client{Timeout: 10 * time.Second}
 		customGetUser := func(c echo.Context) string { return "custom" }
 		config := Config{
-			HTTPBaseURL:        "https://example.com",
+			MultihostBase:        "https://example.com",
 			DisableCache:       false,
 			CacheTTL:           10 * time.Minute,
 			HTTPClient:         client,
 			GetUserFromContext: customGetUser,
 		}
-		sdk := New(config)
+		sdk := NewWithConfig(config)
 
 		assert.NotNil(t, sdk)
 		assert.Equal(t, client, sdk.config.HTTPClient)
@@ -107,12 +107,60 @@ func TestNew(t *testing.T) {
 	})
 }
 
+func TestNewSingleFile(t *testing.T) {
+	server := mockServer(t)
+	defer server.Close()
+
+	t.Run("creates SDK with single file URL", func(t *testing.T) {
+		sdk := New(server.URL + "/tenant1.json")
+
+		assert.NotNil(t, sdk)
+		assert.NotNil(t, sdk.config.HTTPClient)
+		assert.Equal(t, 5*time.Minute, sdk.config.CacheTTL)
+		assert.Equal(t, 1*time.Minute, sdk.config.ErrorTTL)
+		assert.NotNil(t, sdk.config.GetUserFromContext)
+		assert.NotNil(t, sdk.config.GetTenantFromContext)
+		assert.Equal(t, server.URL+"/tenant1.json", sdk.config.FlagsURL)
+		
+		// Test that tenant extraction always returns "_static_"
+		e := echo.New()
+		req := httptest.NewRequest(http.MethodGet, "http://anydomain.com/", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		assert.Equal(t, "_static_", sdk.config.GetTenantFromContext(c))
+	})
+
+	t.Run("single file mode ignores request host", func(t *testing.T) {
+		sdk := New(server.URL + "/tenant1.json")
+		
+		e := echo.New()
+		
+		// Different request hosts should all use the same static file
+		req1 := httptest.NewRequest(http.MethodGet, "http://tenant1/", nil)
+		rec1 := httptest.NewRecorder()
+		c1 := e.NewContext(req1, rec1)
+		
+		req2 := httptest.NewRequest(http.MethodGet, "http://tenant2/", nil)
+		rec2 := httptest.NewRecorder()
+		c2 := e.NewContext(req2, rec2)
+		
+		// Both should get the same values from tenant1.json
+		val1, err1 := sdk.GetBool(c1, "feature1")
+		require.NoError(t, err1)
+		assert.True(t, val1)
+		
+		val2, err2 := sdk.GetBool(c2, "feature1")
+		require.NoError(t, err2)
+		assert.True(t, val2)
+	})
+}
+
 func TestGetString(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
-	sdk := New(Config{
-		HTTPBaseURL:  server.URL,
+	sdk := NewWithConfig(Config{
+		MultihostBase:  server.URL,
 		DisableCache: false,
 	})
 
@@ -154,8 +202,8 @@ func TestGetBool(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
-	sdk := New(Config{
-		HTTPBaseURL:  server.URL,
+	sdk := NewWithConfig(Config{
+		MultihostBase:  server.URL,
 		DisableCache: false,
 	})
 
@@ -191,8 +239,8 @@ func TestGetInt(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
-	sdk := New(Config{
-		HTTPBaseURL:  server.URL,
+	sdk := NewWithConfig(Config{
+		MultihostBase:  server.URL,
 		DisableCache: false,
 	})
 
@@ -224,8 +272,8 @@ func TestGetFloat64(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
-	sdk := New(Config{
-		HTTPBaseURL:  server.URL,
+	sdk := NewWithConfig(Config{
+		MultihostBase:  server.URL,
 		DisableCache: false,
 	})
 
@@ -257,8 +305,8 @@ func TestGetStringSlice(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
-	sdk := New(Config{
-		HTTPBaseURL:  server.URL,
+	sdk := NewWithConfig(Config{
+		MultihostBase:  server.URL,
 		DisableCache: false,
 	})
 
@@ -290,8 +338,8 @@ func TestGetMap(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
-	sdk := New(Config{
-		HTTPBaseURL:  server.URL,
+	sdk := NewWithConfig(Config{
+		MultihostBase:  server.URL,
 		DisableCache: false,
 	})
 
@@ -313,8 +361,8 @@ func TestIsEnabled(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
-	sdk := New(Config{
-		HTTPBaseURL:  server.URL,
+	sdk := NewWithConfig(Config{
+		MultihostBase:  server.URL,
 		DisableCache: false,
 	})
 
@@ -335,8 +383,8 @@ func TestCaching(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
-	sdk := New(Config{
-		HTTPBaseURL:  server.URL,
+	sdk := NewWithConfig(Config{
+		MultihostBase:  server.URL,
 		DisableCache: false,
 		CacheTTL:     100 * time.Millisecond,
 	})
@@ -435,8 +483,8 @@ func TestDefaultTenant(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
-	sdk := New(Config{
-		HTTPBaseURL:   server.URL,
+	sdk := NewWithConfig(Config{
+		MultihostBase:   server.URL,
 		DefaultTenant: "tenant1",
 		DisableCache:  false,
 		GetTenantFromContext: func(c echo.Context) string {
@@ -463,8 +511,8 @@ func TestErrorHandling(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
-	sdk := New(Config{
-		HTTPBaseURL:  server.URL,
+	sdk := NewWithConfig(Config{
+		MultihostBase:  server.URL,
 		DisableCache: false,
 	})
 
@@ -490,8 +538,8 @@ func TestErrorHandling(t *testing.T) {
 	})
 
 	t.Run("handles no tenant specified", func(t *testing.T) {
-		sdkNoDefault := New(Config{
-			HTTPBaseURL:  server.URL,
+		sdkNoDefault := NewWithConfig(Config{
+			MultihostBase:  server.URL,
 			DisableCache: true,
 		})
 
@@ -515,8 +563,8 @@ func TestContextCancellation(t *testing.T) {
 	}))
 	defer slowServer.Close()
 
-	sdk := New(Config{
-		HTTPBaseURL: slowServer.URL,
+	sdk := NewWithConfig(Config{
+		MultihostBase: slowServer.URL,
 		DisableCache:  false,
 	})
 
@@ -540,8 +588,8 @@ func TestCustomGetUserFromContext(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
-	sdk := New(Config{
-		HTTPBaseURL: server.URL,
+	sdk := NewWithConfig(Config{
+		MultihostBase: server.URL,
 		DisableCache:  false,
 		GetUserFromContext: func(c echo.Context) string {
 			// Custom logic: get user from header
@@ -580,8 +628,8 @@ func TestGettersWithDefault(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
-	sdk := New(Config{
-		HTTPBaseURL: server.URL,
+	sdk := NewWithConfig(Config{
+		MultihostBase: server.URL,
 		DefaultTenant: "tenant1",
 	})
 
@@ -657,8 +705,8 @@ func TestFallbackTenant(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
-	sdk := New(Config{
-		HTTPBaseURL:  server.URL,
+	sdk := NewWithConfig(Config{
+		MultihostBase:  server.URL,
 		FallbackTenant: "tenant2",
 		DisableCache:   false,
 	})
@@ -736,8 +784,8 @@ func TestFallbackTenant(t *testing.T) {
 	})
 
 	t.Run("no fallback when fallback tenant same as primary", func(t *testing.T) {
-		sdkSameFallback := New(Config{
-			HTTPBaseURL:  server.URL,
+		sdkSameFallback := NewWithConfig(Config{
+			MultihostBase:  server.URL,
 			FallbackTenant: "tenant1", // Same as primary
 			DisableCache:   false,
 		})
@@ -757,8 +805,8 @@ func TestFallbackTenant(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		sdkWithFallback := New(Config{
-			HTTPBaseURL:  server.URL,
+		sdkWithFallback := NewWithConfig(Config{
+			MultihostBase:  server.URL,
 			FallbackTenant: "tenant1",
 			DisableCache:   false,
 		})
@@ -773,8 +821,8 @@ func TestGetBoolWithNestedPaths(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
-	sdk := New(Config{
-		HTTPBaseURL: server.URL,
+	sdk := NewWithConfig(Config{
+		MultihostBase: server.URL,
 		DisableCache:  false,
 	})
 
@@ -830,8 +878,8 @@ func TestErrorCaching(t *testing.T) {
 	}))
 	defer server.Close()
 
-	sdk := New(Config{
-		HTTPBaseURL: server.URL,
+	sdk := NewWithConfig(Config{
+		MultihostBase: server.URL,
 		DisableCache:  false,
 		ErrorTTL:      100 * time.Millisecond,
 	})
