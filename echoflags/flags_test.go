@@ -945,3 +945,174 @@ func TestErrorCaching(t *testing.T) {
 		assert.True(t, secondCallDuration < firstCallDuration/2)
 	})
 }
+
+func TestEnsureLoaded(t *testing.T) {
+	server := mockServer(t)
+	defer server.Close()
+
+	e := echo.New()
+
+	t.Run("single-file mode ensures static file loaded", func(t *testing.T) {
+		sdk := New(server.URL + "/tenant1.json")
+
+		req := httptest.NewRequest(http.MethodGet, "http://anydomain/", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := sdk.EnsureLoaded(c)
+		require.NoError(t, err)
+
+		// Verify cache has entry for static file
+		sdk.cache.mu.RLock()
+		_, exists := sdk.cache.entries["_static_"]
+		sdk.cache.mu.RUnlock()
+		assert.True(t, exists)
+	})
+
+	t.Run("single-file mode handles error", func(t *testing.T) {
+		sdk := New(server.URL + "/nonexistent.json")
+
+		req := httptest.NewRequest(http.MethodGet, "http://anydomain/", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := sdk.EnsureLoaded(c)
+		assert.Error(t, err)
+	})
+
+	t.Run("multihost mode loads primary tenant", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			MultihostBase: server.URL,
+			DisableCache:  false,
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "http://tenant1/", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := sdk.EnsureLoaded(c)
+		require.NoError(t, err)
+
+		// Verify cache has entry for tenant1
+		sdk.cache.mu.RLock()
+		_, exists := sdk.cache.entries["tenant1"]
+		sdk.cache.mu.RUnlock()
+		assert.True(t, exists)
+	})
+
+	t.Run("multihost mode with fallback tenant - both succeed", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			MultihostBase:  server.URL,
+			FallbackTenant: "tenant2",
+			DisableCache:   false,
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "http://tenant1/", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := sdk.EnsureLoaded(c)
+		require.NoError(t, err)
+
+		// Verify cache has entries for both tenants
+		sdk.cache.mu.RLock()
+		_, exists1 := sdk.cache.entries["tenant1"]
+		_, exists2 := sdk.cache.entries["tenant2"]
+		sdk.cache.mu.RUnlock()
+		assert.True(t, exists1)
+		assert.True(t, exists2)
+	})
+
+	t.Run("multihost mode with fallback tenant - primary fails, fallback succeeds", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			MultihostBase:  server.URL,
+			FallbackTenant: "tenant2",
+			DisableCache:   false,
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "http://nonexistent/", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := sdk.EnsureLoaded(c)
+		require.NoError(t, err)
+
+		// Verify cache has entry for fallback tenant
+		sdk.cache.mu.RLock()
+		_, exists2 := sdk.cache.entries["tenant2"]
+		sdk.cache.mu.RUnlock()
+		assert.True(t, exists2)
+	})
+
+	t.Run("multihost mode with fallback tenant - both fail", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			MultihostBase:  server.URL,
+			FallbackTenant: "nonexistent2",
+			DisableCache:   false,
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "http://nonexistent/", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := sdk.EnsureLoaded(c)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to load tenant configs - primary:")
+	})
+
+	t.Run("multihost mode without fallback tenant - primary fails", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			MultihostBase: server.URL,
+			DisableCache:  false,
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "http://nonexistent/", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := sdk.EnsureLoaded(c)
+		assert.Error(t, err)
+	})
+
+	t.Run("multihost mode with default tenant", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			MultihostBase: server.URL,
+			DefaultTenant: "tenant1",
+			DisableCache:  false,
+			GetTenantFromContext: func(c echo.Context) string {
+				return "" // Return empty to trigger default tenant usage
+			},
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := sdk.EnsureLoaded(c)
+		require.NoError(t, err)
+
+		// Verify cache has entry for default tenant
+		sdk.cache.mu.RLock()
+		_, exists := sdk.cache.entries["tenant1"]
+		sdk.cache.mu.RUnlock()
+		assert.True(t, exists)
+	})
+
+	t.Run("multihost mode no tenant specified", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			MultihostBase: server.URL,
+			DisableCache:  false,
+			GetTenantFromContext: func(c echo.Context) string {
+				return "" // Return empty and no default tenant
+			},
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := sdk.EnsureLoaded(c)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no tenant specified")
+	})
+}

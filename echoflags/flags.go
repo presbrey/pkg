@@ -329,3 +329,45 @@ func (s *SDK) ClearTenantCache(tenant string) {
 	defer s.cache.mu.Unlock()
 	delete(s.cache.entries, tenant)
 }
+
+// EnsureLoaded ensures that at least one successful fetch has occurred for the tenant.
+// In single-file mode (FlagsURL set), it performs one fetch for the static file.
+// In multihost mode, it performs a synchronous fetch for the primary tenant and fallback tenant (if configured).
+// Returns error if fetches fail, nil if at least one succeeds.
+func (s *SDK) EnsureLoaded(c echo.Context) error {
+	ctx := c.Request().Context()
+	
+	// Single-file mode - just fetch the static file once
+	if s.config.FlagsURL != "" {
+		_, err := s.getTenantConfig(ctx, "_static_")
+		return err
+	}
+	
+	// Multihost mode
+	tenant := s.config.GetTenantFromContext(c)
+	if tenant == "" {
+		tenant = s.config.DefaultTenant
+	}
+	if tenant == "" {
+		return fmt.Errorf("no tenant specified")
+	}
+	
+	// Try to load primary tenant
+	_, primaryErr := s.getTenantConfig(ctx, tenant)
+	
+	// If fallback tenant is configured and different from primary, try it too
+	if s.config.FallbackTenant != "" && s.config.FallbackTenant != tenant {
+		_, fallbackErr := s.getTenantConfig(ctx, s.config.FallbackTenant)
+		
+		// Success if either tenant loaded successfully
+		if primaryErr == nil || fallbackErr == nil {
+			return nil
+		}
+		
+		// Both failed - return the primary error as it's more relevant
+		return fmt.Errorf("failed to load tenant configs - primary: %w", primaryErr)
+	}
+	
+	// Only primary tenant, return its result
+	return primaryErr
+}
