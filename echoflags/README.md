@@ -216,6 +216,13 @@ The same methods are available on the `FlagSet` object returned by `sdk.WithCont
 ### Cache Management
 
 ```go
+// Pre-load configuration for the given context to warm the cache
+// or ensure flags are available before first use.
+err := sdk.EnsureLoaded(c)
+if err != nil {
+    // Handle error, e.g., log it or use fallback values
+}
+
 // Clear all cache entries
 sdk.ClearCache()
 
