@@ -45,11 +45,11 @@ type Config struct {
 	// HTTPClient allows custom HTTP client configuration
 	HTTPClient *http.Client
 
-	// DefaultHost is used when no host is specified (multihost mode only)
-	DefaultHost string
+	
 
-	// FallbackHost is used when a key is not found in the primary host
-	FallbackHost string
+	// BaseHost is used as a base configuration when using FlagsBase.
+	// The host-specific configuration is merged on top of the BaseHost configuration.
+	BaseHost string
 
 	// DefaultUser is used when no user is specified
 	DefaultUser string
@@ -107,9 +107,6 @@ func NewWithConfig(config Config) *SDK {
 
 			if host == "" {
 				host = ContextHost(c)
-			}
-			if host == "" {
-				host = config.DefaultHost
 			}
 			return fmt.Sprintf("%s/%s.json", config.FlagsBase, host)
 		}
@@ -221,20 +218,56 @@ func (s *SDK) getValue(c echo.Context, key string) (interface{}, error) {
 		return nil, fmt.Errorf("key cannot be empty")
 	}
 
-	// Split the key by dots to handle nested paths
-	parts := strings.Split(key, ".")
-	rootKey := parts[0]
-
-	// Get host config
 	host := ContextHost(c)
-	config, err := s.getHostConfig(c, host)
+
+	if s.config.FlagsURL != "" {
+		// Single file mode
+		config, err := s.getHostConfig(c, host) // host is ignored here
+		if err != nil {
+			return nil, err
+		}
+		return lookupValueInConfig(config, key, s.config.GetUserFunc(c))
+	}
+
+	// Multi-host mode
+	var baseConfig HostConfig
+	if s.config.BaseHost != "" {
+		baseConfig, _ = s.getHostConfig(c, s.config.BaseHost)
+	}
+
+	if host == "" {
+		if baseConfig == nil {
+			return nil, fmt.Errorf("no flag configuration could be loaded")
+		}
+		return lookupValueInConfig(baseConfig, key, s.config.GetUserFunc(c))
+	}
+
+	if host == s.config.BaseHost {
+		if baseConfig == nil {
+			return nil, fmt.Errorf("no flag configuration could be loaded for host: %s", host)
+		}
+		return lookupValueInConfig(baseConfig, key, s.config.GetUserFunc(c))
+	}
+
+	hostConfig, err := s.getHostConfig(c, host)
 	if err != nil {
+		if baseConfig != nil {
+			return lookupValueInConfig(baseConfig, key, s.config.GetUserFunc(c))
+		}
 		return nil, err
 	}
 
-	user := s.config.GetUserFunc(c)
+	finalConfig := mergeHostConfig(baseConfig, hostConfig)
+	return lookupValueInConfig(finalConfig, key, s.config.GetUserFunc(c))
+}
 
-	// Start with wildcard value for root key
+func lookupValueInConfig(config HostConfig, key, user string) (interface{}, error) {
+	if config == nil {
+		return nil, fmt.Errorf("key %s not found", key)
+	}
+	parts := strings.Split(key, ".")
+	rootKey := parts[0]
+
 	var value interface{}
 	if wildcardConfig, exists := config["*"]; exists {
 		if v, ok := wildcardConfig[rootKey]; ok {
@@ -242,33 +275,10 @@ func (s *SDK) getValue(c echo.Context, key string) (interface{}, error) {
 		}
 	}
 
-	// Override with user-specific value if available for root key
 	if user != "" {
 		if userConfig, exists := config[user]; exists {
 			if v, ok := userConfig[rootKey]; ok {
 				value = v
-			}
-		}
-	}
-
-	// Try fallback host if root key not found in primary host
-	if value == nil && s.config.FallbackHost != "" && s.config.FallbackHost != host {
-		fallbackConfig, err := s.getHostConfig(c, s.config.FallbackHost)
-		if err == nil {
-			// Start with wildcard value from fallback host
-			if wildcardConfig, exists := fallbackConfig["*"]; exists {
-				if v, ok := wildcardConfig[rootKey]; ok {
-					value = v
-				}
-			}
-
-			// Override with user-specific value from fallback host if available
-			if user != "" {
-				if userConfig, exists := fallbackConfig[user]; exists {
-					if v, ok := userConfig[rootKey]; ok {
-						value = v
-					}
-				}
 			}
 		}
 	}
@@ -300,6 +310,54 @@ func (s *SDK) getValue(c echo.Context, key string) (interface{}, error) {
 
 	return value, nil
 }
+
+// mergeMaps recursively merges two maps. Values in override map take precedence.
+func mergeMaps(base, override map[string]interface{}) map[string]interface{} {
+	if base == nil {
+		return override
+	}
+	if override == nil {
+		return base
+	}
+	merged := make(map[string]interface{})
+	for k, v := range base {
+		merged[k] = v
+	}
+	for k, v := range override {
+		if baseV, ok := base[k]; ok {
+			if baseMap, ok1 := baseV.(map[string]interface{}); ok1 {
+				if overrideMap, ok2 := v.(map[string]interface{}); ok2 {
+					v = mergeMaps(baseMap, overrideMap)
+				}
+			}
+		}
+		merged[k] = v
+	}
+	return merged
+}
+
+// mergeHostConfig merges two HostConfig maps. The override config takes precedence.
+func mergeHostConfig(base, override HostConfig) HostConfig {
+	if base == nil {
+		return override
+	}
+	if override == nil {
+		return base
+	}
+	merged := make(HostConfig)
+	for user, flags := range base {
+		merged[user] = flags
+	}
+	for user, overrideFlags := range override {
+		if baseFlags, ok := merged[user]; ok {
+			merged[user] = mergeMaps(baseFlags, overrideFlags)
+		} else {
+			merged[user] = overrideFlags
+		}
+	}
+	return merged
+}
+
 
 // ClearCache clears all cached entries
 func (s *SDK) ClearCache() {

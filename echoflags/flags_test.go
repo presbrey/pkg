@@ -57,6 +57,25 @@ func mockServer(*testing.T) *httptest.Server {
 		},
 	}
 
+	// Base config for merge testing
+	baseForMerge := HostConfig{
+		"*": {
+			"fallbackKey":     true,
+			"feature1":        false, // This should be overridden by tenant1
+			"allowedRegions":  []string{"ap-south-1"},
+			"metadata": map[string]interface{}{
+				"source":  "base",
+				"version": "0.5-base", // overridden by tenant1
+			},
+		},
+		"user@example.com": {
+			"maxItems": 50, // overridden by tenant1
+		},
+		"base-user@example.com": {
+			"fromBase": true,
+		},
+	}
+
 	mux.HandleFunc("/host1.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(host1Config)
@@ -67,9 +86,20 @@ func mockServer(*testing.T) *httptest.Server {
 		json.NewEncoder(w).Encode(host2Config)
 	})
 
-	// Tenant1 configuration - serve the actual tenant1.json file
+	mux.HandleFunc("/baseForMerge.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(baseForMerge)
+	})
+
+	// Serve actual files from examples
 	mux.HandleFunc("/tenant1.json", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "examples/tenant1.json")
+		http.ServeFile(w, r, "examples/hosts/tenant1.json")
+	})
+	mux.HandleFunc("/default-host.json", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "examples/hosts/default-host.json")
+	})
+	mux.HandleFunc("/base-host.json", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "examples/hosts/fallback-host.json")
 	})
 
 	mux.HandleFunc("/invalid.json", func(w http.ResponseWriter, r *http.Request) {
@@ -499,31 +529,38 @@ func TestCaching(t *testing.T) {
 	})
 }
 
-func TestDefaultHost(t *testing.T) {
+func TestNoHost(t *testing.T) {
 	server := mockServer(t)
 	defer server.Close()
 
-	sdk := NewWithConfig(Config{
-		FlagsBase:    server.URL,
-		DefaultHost:  "host1",
-		DisableCache: false,
-	})
-
 	e := echo.New()
 
-	t.Run("uses default host when not specified", func(t *testing.T) {
+	t.Run("uses base host when no host specified", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			FlagsBase:    server.URL,
+			BaseHost:     "host1",
+			DisableCache: false,
+		})
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-		// Custom GetHostFromContext returns empty, should fall back to default host
-
-		// httptest.NewRequest sets Host to "example.com" by default
-		// We need to clear it to test the default host fallback
 		req.Host = ""
+		c := e.NewContext(req, httptest.NewRecorder())
 
-		value, err := sdk.GetBool(c, "feature1")
+		value, err := sdk.GetBool(c, "feature1") // feature1 is in host1
 		require.NoError(t, err)
 		assert.True(t, value)
+	})
+
+	t.Run("fails when no host and no base host", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			FlagsBase:    server.URL,
+			DisableCache: true,
+		})
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Host = ""
+		c := e.NewContext(req, httptest.NewRecorder())
+
+		_, err := sdk.GetBool(c, "feature1")
+		assert.Error(t, err)
 	})
 }
 
@@ -650,7 +687,7 @@ func TestGettersWithDefault(t *testing.T) {
 
 	sdk := NewWithConfig(Config{
 		FlagsBase:   server.URL,
-		DefaultHost: "host1",
+		BaseHost: "host1",
 	})
 
 	e := echo.New()
@@ -955,28 +992,7 @@ func TestEnsureLoaded(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("multihost mode with default host", func(t *testing.T) {
-		sdk := NewWithConfig(Config{
-			FlagsBase:    server.URL,
-			DefaultHost:  "host1",
-			DisableCache: false,
-		})
-
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		// Clear the host to test default host fallback
-		req.Host = ""
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := sdk.EnsureLoaded(c)
-		require.NoError(t, err)
-
-		// Verify cache has entry for default host
-		sdk.cache.mu.RLock()
-		_, exists := sdk.cache.entries[server.URL+"/host1.json"]
-		sdk.cache.mu.RUnlock()
-		assert.True(t, exists)
-	})
+	
 
 	t.Run("multihost mode no host specified", func(t *testing.T) {
 		sdk := NewWithConfig(Config{
@@ -991,5 +1007,154 @@ func TestEnsureLoaded(t *testing.T) {
 		err := sdk.EnsureLoaded(c)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "unexpected status code")
+	})
+}
+
+func TestMergingLogic(t *testing.T) {
+	server := mockServer(t)
+	defer server.Close()
+
+	e := echo.New()
+
+	t.Run("no base, no problem", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			FlagsBase:    server.URL,
+			DisableCache: true,
+		})
+		req := httptest.NewRequest(http.MethodGet, "http://tenant1/", nil)
+		c := e.NewContext(req, httptest.NewRecorder())
+
+		val, err := sdk.GetBool(c, "feature1")
+		require.NoError(t, err)
+		assert.True(t, val)
+	})
+
+	t.Run("base only when host is missing", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			FlagsBase:    server.URL,
+			BaseHost:     "base-host",
+			DisableCache: true,
+		})
+		req := httptest.NewRequest(http.MethodGet, "http://nonexistent/", nil)
+		c := e.NewContext(req, httptest.NewRecorder())
+
+		val, err := sdk.GetBool(c, "fallbackHost")
+		require.NoError(t, err)
+		assert.True(t, val)
+
+		_, err = sdk.GetBool(c, "feature1")
+		assert.Error(t, err, "feature1 should not exist in base")
+	})
+
+	t.Run("host values override base values", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			FlagsBase:    server.URL,
+			BaseHost:     "baseForMerge",
+			DisableCache: true,
+		})
+		req := httptest.NewRequest(http.MethodGet, "http://tenant1/", nil)
+		c := e.NewContext(req, httptest.NewRecorder())
+
+		// This value is true in tenant1, but false in baseForMerge
+		val, err := sdk.GetBool(c, "feature1")
+		require.NoError(t, err)
+		assert.True(t, val, "tenant1 value for feature1 should take precedence")
+	})
+
+	t.Run("values are merged from host and base", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			FlagsBase:    server.URL,
+			BaseHost:     "baseForMerge",
+			DisableCache: true,
+		})
+		req := httptest.NewRequest(http.MethodGet, "http://tenant1/", nil)
+		c := e.NewContext(req, httptest.NewRecorder())
+
+		// This value only exists in the base
+		fbVal, err := sdk.GetBool(c, "fallbackKey")
+		require.NoError(t, err)
+		assert.True(t, fbVal)
+
+		// This value only exists in the host config
+		feature2, err := sdk.GetBool(c, "feature2")
+		require.NoError(t, err)
+		assert.False(t, feature2)
+	})
+
+	t.Run("nested maps are merged", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			FlagsBase:    server.URL,
+			BaseHost:     "baseForMerge",
+			DisableCache: true,
+		})
+		req := httptest.NewRequest(http.MethodGet, "http://tenant1/", nil)
+		c := e.NewContext(req, httptest.NewRecorder())
+
+		meta, err := sdk.GetMap(c, "metadata")
+		require.NoError(t, err)
+
+		// From base
+		assert.Equal(t, "base", meta["source"])
+		// From tenant1 (override)
+		assert.Equal(t, "1.0.0", meta["version"])
+		// From tenant1
+		assert.Equal(t, "standard", meta["tier"])
+	})
+
+	t.Run("arrays are replaced, not merged", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			FlagsBase:    server.URL,
+			BaseHost:     "baseForMerge",
+			DisableCache: true,
+		})
+		req := httptest.NewRequest(http.MethodGet, "http://tenant1/", nil)
+		c := e.NewContext(req, httptest.NewRecorder())
+
+		// baseForMerge has ["ap-south-1"], tenant1 has ["us-east-1", "us-west-2"]
+		regions, err := sdk.GetStringSlice(c, "allowedRegions")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"us-east-1", "us-west-2"}, regions, "host array should replace base array")
+	})
+
+	t.Run("user-specific values are merged correctly", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			FlagsBase:    server.URL,
+			BaseHost:     "baseForMerge",
+			DisableCache: true,
+		})
+		req := httptest.NewRequest(http.MethodGet, "http://tenant1/", nil)
+		c := e.NewContext(req, httptest.NewRecorder())
+		c.Set("user", "user@example.com")
+
+		// From tenant1 user-specific (150) overrides base user-specific (50)
+		maxItems, err := sdk.GetInt(c, "maxItems")
+		require.NoError(t, err)
+		assert.Equal(t, 150, maxItems)
+
+		// This is a wildcard value from tenant1, not defined for the user
+		feature2, err := sdk.GetBool(c, "feature2")
+		require.NoError(t, err)
+		assert.True(t, feature2)
+	})
+
+	t.Run("user exists only in base", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			FlagsBase:    server.URL,
+			BaseHost:     "baseForMerge",
+			DisableCache: true,
+		})
+		req := httptest.NewRequest(http.MethodGet, "http://tenant1/", nil)
+		c := e.NewContext(req, httptest.NewRecorder())
+		c.Set("user", "base-user@example.com")
+
+		// This value comes from the user-specific block in the base
+		fromFb, err := sdk.GetBool(c, "fromBase")
+		require.NoError(t, err)
+		assert.True(t, fromFb)
+
+		// This value comes from the wildcard block in tenant1
+		feature1, err := sdk.GetBool(c, "feature1")
+		require.NoError(t, err)
+		assert.True(t, feature1)
 	})
 }

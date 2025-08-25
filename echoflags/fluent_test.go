@@ -16,7 +16,7 @@ func TestFluentAPI(t *testing.T) {
 
 	sdk := NewWithConfig(Config{
 		FlagsBase: server.URL,
-		DefaultHost:   "host1",
+		BaseHost:   "host1",
 	})
 
 	e := echo.New()
