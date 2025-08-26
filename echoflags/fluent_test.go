@@ -90,3 +90,71 @@ func TestFluentAPI(t *testing.T) {
 		assert.True(t, userFs.IsEnabled("feature2"))
 	})
 }
+
+func TestFluentAPIWithCustomUserKey(t *testing.T) {
+	server := mockServer(t)
+	defer server.Close()
+
+	sdk := NewWithConfig(Config{
+		FlagsBase:      server.URL,
+		BaseHost:       "host1",
+		UserContextKey: "custom_user",
+	})
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "http://host1/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.Set("custom_user", "user@example.com")
+
+	fs := sdk.WithContext(c)
+
+	// feature2 is false for wildcard, true for user@example.com
+	assert.True(t, fs.IsEnabled("feature2"))
+}
+
+func TestFluentAPIWithDefault(t *testing.T) {
+	server := mockServer(t)
+	defer server.Close()
+
+	sdk := NewWithConfig(Config{
+		FlagsBase: server.URL,
+		BaseHost:   "host1",
+	})
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "http://host1/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	fs := sdk.WithContext(c)
+
+	t.Run("GetBoolWithDefault", func(t *testing.T) {
+		assert.True(t, fs.GetBoolWithDefault("feature1", false))
+		assert.False(t, fs.GetBoolWithDefault("nonexistent", false))
+		assert.True(t, fs.GetBoolWithDefault("nonexistent", true))
+	})
+
+	t.Run("GetIntWithDefault", func(t *testing.T) {
+		assert.Equal(t, 100, fs.GetIntWithDefault("maxItems", 0))
+		assert.Equal(t, 123, fs.GetIntWithDefault("nonexistent", 123))
+	})
+
+	t.Run("GetFloat64WithDefault", func(t *testing.T) {
+		assert.Equal(t, 0.1, fs.GetFloat64WithDefault("discount", 0.0))
+		assert.Equal(t, 3.14, fs.GetFloat64WithDefault("nonexistent", 3.14))
+	})
+
+	t.Run("GetStringSliceWithDefault", func(t *testing.T) {
+		assert.Equal(t, []string{"us-east", "us-west"}, fs.GetStringSliceWithDefault("allowedRegions", []string{}))
+		assert.Equal(t, []string{"default"}, fs.GetStringSliceWithDefault("nonexistent", []string{"default"}))
+	})
+
+	t.Run("GetMapWithDefault", func(t *testing.T) {
+		val := fs.GetMapWithDefault("metadata", map[string]interface{}{"default": true})
+		assert.Equal(t, "1.0", val["version"])
+
+		val = fs.GetMapWithDefault("nonexistent", map[string]interface{}{"default": true})
+		assert.Equal(t, true, val["default"])
+	})
+}

@@ -45,14 +45,16 @@ type Config struct {
 	// HTTPClient allows custom HTTP client configuration
 	HTTPClient *http.Client
 
-	
-
 	// BaseHost is used as a base configuration when using FlagsBase.
 	// The host-specific configuration is merged on top of the BaseHost configuration.
 	BaseHost string
 
 	// DefaultUser is used when no user is specified
 	DefaultUser string
+
+	// UserContextKey is the key used to extract user information from echo.Context
+	// Defaults to "user"
+	UserContextKey string
 
 	// GetFlagsURL allows custom logic to extract flag path from context
 	GetFlagsURL func(c echo.Context, host string) string
@@ -112,9 +114,13 @@ func NewWithConfig(config Config) *SDK {
 		}
 	}
 
+	if config.UserContextKey == "" {
+		config.UserContextKey = "user"
+	}
+
 	if config.GetUserFunc == nil {
 		config.GetUserFunc = func(c echo.Context) string {
-			if user, ok := c.Get("user").(string); ok {
+			if user, ok := c.Get(config.UserContextKey).(string); ok {
 				return user
 			}
 			return config.DefaultUser
@@ -259,6 +265,69 @@ func (s *SDK) getValue(c echo.Context, key string) (interface{}, error) {
 
 	finalConfig := mergeHostConfig(baseConfig, hostConfig)
 	return lookupValueInConfig(finalConfig, key, s.config.GetUserFunc(c))
+}
+
+// GetFlagKeys retrieves all flag keys for the current context
+func (s *SDK) GetFlagKeys(c echo.Context) ([]string, error) {
+	host := ContextHost(c)
+
+	var config HostConfig
+	var err error
+
+	if s.config.FlagsURL != "" {
+		// Single file mode
+		config, err = s.getHostConfig(c, host) // host is ignored here
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Multi-host mode
+		var baseConfig HostConfig
+		if s.config.BaseHost != "" {
+			baseConfig, _ = s.getHostConfig(c, s.config.BaseHost)
+		}
+
+		if host != "" && host != s.config.BaseHost {
+			hostConfig, err := s.getHostConfig(c, host)
+			if err != nil {
+				if baseConfig == nil {
+					return nil, err
+				}
+				config = baseConfig
+			} else {
+				config = mergeHostConfig(baseConfig, hostConfig)
+			}
+		} else {
+			if baseConfig == nil {
+				return nil, fmt.Errorf("no flag configuration could be loaded")
+			}
+			config = baseConfig
+		}
+	}
+
+	if config == nil {
+		return nil, fmt.Errorf("no flag configuration could be loaded")
+	}
+
+	user := s.config.GetUserFunc(c)
+	return getKeysFromConfig(config, user), nil
+}
+
+func getKeysFromConfig(config HostConfig, user string) []string {
+	keys := make(map[string]struct{})
+
+	// Add all keys from all users
+	for _, flags := range config {
+		for k := range flags {
+			keys[k] = struct{}{}
+		}
+	}
+
+	result := make([]string, 0, len(keys))
+	for k := range keys {
+		result = append(result, k)
+	}
+	return result
 }
 
 func lookupValueInConfig(config HostConfig, key, user string) (interface{}, error) {

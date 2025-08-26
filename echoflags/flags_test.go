@@ -76,6 +76,10 @@ func mockServer(*testing.T) *httptest.Server {
 		},
 	}
 
+	mux.HandleFunc("/flags.json", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "examples/flags.json")
+	})
+
 	mux.HandleFunc("/host1.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(host1Config)
@@ -126,17 +130,19 @@ func TestNewWithConfig(t *testing.T) {
 		assert.NotNil(t, sdk.config.HTTPClient)
 		assert.Equal(t, 5*time.Minute, sdk.config.CacheTTL)
 		assert.NotNil(t, sdk.config.GetUserFunc)
+		assert.Equal(t, "user", sdk.config.UserContextKey)
 	})
 
 	t.Run("creates SDK with custom config", func(t *testing.T) {
 		client := &http.Client{Timeout: 10 * time.Second}
 		customGetUser := func(c echo.Context) string { return "custom" }
 		config := Config{
-			FlagsBase:    "https://example.com",
-			DisableCache: false,
-			CacheTTL:     10 * time.Minute,
-			HTTPClient:   client,
-			GetUserFunc:  customGetUser,
+			FlagsBase:      "https://example.com",
+			DisableCache:   false,
+			CacheTTL:       10 * time.Minute,
+			HTTPClient:     client,
+			GetUserFunc:    customGetUser,
+			UserContextKey: "custom_user",
 		}
 		sdk := NewWithConfig(config)
 
@@ -145,6 +151,7 @@ func TestNewWithConfig(t *testing.T) {
 		assert.Equal(t, 10*time.Minute, sdk.config.CacheTTL)
 		assert.False(t, sdk.config.DisableCache)
 		assert.NotNil(t, sdk.config.GetUserFunc)
+		assert.Equal(t, "custom_user", sdk.config.UserContextKey)
 	})
 }
 
@@ -208,6 +215,24 @@ func TestNewSingleFile(t *testing.T) {
 		version, err := sdk.GetString(c, "apiConfig.version")
 		require.NoError(t, err)
 		assert.Equal(t, "2.1-beta", version)
+	})
+
+	t.Run("single file mode with custom user context key", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			FlagsURL:       server.URL + "/flags.json",
+			UserContextKey: "auth_user",
+		})
+
+		e := echo.New()
+
+		// Test admin user override with custom key
+		req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		c.Set("auth_user", "admin@example.com")
+		maxConn, err := sdk.GetInt(c, "maxConnections")
+		require.NoError(t, err)
+		assert.Equal(t, 500, maxConn)
 	})
 }
 
@@ -1156,5 +1181,65 @@ func TestMergingLogic(t *testing.T) {
 		feature1, err := sdk.GetBool(c, "feature1")
 		require.NoError(t, err)
 		assert.True(t, feature1)
+	})
+}
+
+func TestGetFlagKeys(t *testing.T) {
+	server := mockServer(t)
+	defer server.Close()
+
+	e := echo.New()
+
+	t.Run("gets keys for wildcard user", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			FlagsBase:    server.URL,
+			DisableCache: true,
+		})
+		req := httptest.NewRequest(http.MethodGet, "http://host1/", nil)
+		c := e.NewContext(req, httptest.NewRecorder())
+
+		keys, err := sdk.GetFlagKeys(c)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"feature1", "feature2", "maxItems", "discount", "allowedRegions", "metadata"}, keys)
+	})
+
+	t.Run("gets keys for specific user", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			FlagsBase:    server.URL,
+			DisableCache: true,
+		})
+		req := httptest.NewRequest(http.MethodGet, "http://host1/", nil)
+		c := e.NewContext(req, httptest.NewRecorder())
+		c.Set("user", "user@example.com")
+
+		keys, err := sdk.GetFlagKeys(c)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"feature1", "feature2", "maxItems", "discount", "allowedRegions", "metadata"}, keys)
+	})
+
+	t.Run("single file mode", func(t *testing.T) {
+		flagsURL := server.URL + "/flags.json"
+		sdk := New(flagsURL)
+
+		req := httptest.NewRequest(http.MethodGet, "http://anyhost/", nil)
+		c := e.NewContext(req, httptest.NewRecorder())
+
+		keys, err := sdk.GetFlagKeys(c)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"enableNewFeature", "maxConnections", "timeout", "supportedRegions", "apiConfig", "maintenanceMode", "betaFeatures"}, keys)
+	})
+
+	t.Run("merged keys from base and host", func(t *testing.T) {
+		sdk := NewWithConfig(Config{
+			FlagsBase:    server.URL,
+			BaseHost:     "baseForMerge",
+			DisableCache: true,
+		})
+		req := httptest.NewRequest(http.MethodGet, "http://tenant1/", nil)
+		c := e.NewContext(req, httptest.NewRecorder())
+
+		keys, err := sdk.GetFlagKeys(c)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"fallbackKey", "feature1", "allowedRegions", "metadata", "feature2", "feature3", "maxItems", "fromBase", "betaFeatures", "premiumFeatures", "maxDataPoints", "apiRateLimit", "discount", "apiVersion", "experimentVariant", "limits", "notifications", "security"}, keys)
 	})
 }
