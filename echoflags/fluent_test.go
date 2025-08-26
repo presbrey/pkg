@@ -41,10 +41,16 @@ func TestFluentAPI(t *testing.T) {
 		userVal, err := userFs.GetString("maxItems")
 		require.NoError(t, err)
 		assert.Equal(t, "200", userVal)
+
+		_, err = fs.GetString("nonexistent")
+		assert.Error(t, err)
 	})
 
 	t.Run("GetStringWithDefault", func(t *testing.T) {
-		val := fs.GetStringWithDefault("nonexistent", "default")
+		val := fs.GetStringWithDefault("maxItems", "default")
+		assert.Equal(t, "100", val)
+
+		val = fs.GetStringWithDefault("nonexistent", "default")
 		assert.Equal(t, "default", val)
 	})
 
@@ -52,6 +58,10 @@ func TestFluentAPI(t *testing.T) {
 		val, err := fs.GetBool("feature1")
 		require.NoError(t, err)
 		assert.True(t, val)
+
+		val, err = fs.GetBool("feature2")
+		require.NoError(t, err)
+		assert.False(t, val)
 	})
 
 	t.Run("GetBoolWithNestedPath", func(t *testing.T) {
@@ -82,6 +92,7 @@ func TestFluentAPI(t *testing.T) {
 		val, err := fs.GetMap("metadata")
 		require.NoError(t, err)
 		assert.Equal(t, "1.0", val["version"])
+		assert.Equal(t, "standard", val["tier"])
 	})
 
 	t.Run("IsEnabled", func(t *testing.T) {
@@ -131,6 +142,7 @@ func TestFluentAPIWithDefault(t *testing.T) {
 
 	t.Run("GetBoolWithDefault", func(t *testing.T) {
 		assert.True(t, fs.GetBoolWithDefault("feature1", false))
+		assert.False(t, fs.GetBoolWithDefault("feature2", true))
 		assert.False(t, fs.GetBoolWithDefault("nonexistent", false))
 		assert.True(t, fs.GetBoolWithDefault("nonexistent", true))
 	})
