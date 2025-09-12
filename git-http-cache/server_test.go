@@ -13,7 +13,7 @@ import (
 
 func TestNewServer(t *testing.T) {
 	keys := []string{"key1", "key2", "key3"}
-	server := NewServer("https://github.com/test/repo.git", "./test-repo", keys, 1*time.Minute)
+	server := NewServer("https://github.com/test/repo.git", "./test-repo", keys, "", "", 1*time.Minute)
 
 	if server.repoURL != "https://github.com/test/repo.git" {
 		t.Errorf("Expected repoURL to be 'https://github.com/test/repo.git', got %s", server.repoURL)
@@ -36,7 +36,7 @@ func TestNewServer(t *testing.T) {
 
 func TestAuthMiddleware_NoKeys(t *testing.T) {
 	// Test with no authentication keys (should allow all requests)
-	server := NewServer("https://github.com/test/repo.git", "./test-repo", []string{}, 1*time.Minute)
+	server := NewServer("https://github.com/test/repo.git", "./test-repo", []string{}, "", "", 1*time.Minute)
 
 	handler := server.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -59,7 +59,7 @@ func TestAuthMiddleware_NoKeys(t *testing.T) {
 }
 
 func TestAuthMiddleware_WithKeys(t *testing.T) {
-	server := NewServer("https://github.com/test/repo.git", "./test-repo", []string{"valid-key-1", "valid-key-2"}, 1*time.Minute)
+	server := NewServer("https://github.com/test/repo.git", "./test-repo", []string{"valid-key-1", "valid-key-2"}, "", "", 1*time.Minute)
 
 	handler := server.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -148,7 +148,7 @@ func TestFileServing(t *testing.T) {
 	}
 
 	// Create server without authentication for simplicity
-	server := NewServer("https://github.com/test/repo.git", tempDir, []string{}, 1*time.Minute)
+	server := NewServer("https://github.com/test/repo.git", tempDir, []string{}, "", "", 1*time.Minute)
 	handler := server.Handler()
 
 	tests := []struct {
@@ -215,7 +215,7 @@ func TestAutoUpdate(t *testing.T) {
 	}
 
 	// Create server with short update interval for testing
-	server := NewServer("https://github.com/test/repo.git", tempDir, []string{}, 100*time.Millisecond)
+	server := NewServer("https://github.com/test/repo.git", tempDir, []string{}, "", "", 100*time.Millisecond)
 
 	// Track pull attempts
 	pullCount := 0
@@ -242,7 +242,7 @@ func TestAutoUpdate(t *testing.T) {
 
 func TestGracefulShutdown(t *testing.T) {
 	tempDir := t.TempDir()
-	server := NewServer("https://github.com/test/repo.git", tempDir, []string{}, 1*time.Second)
+	server := NewServer("https://github.com/test/repo.git", tempDir, []string{}, "", "", 1*time.Second)
 
 	// Start auto-update
 	server.StartAutoUpdate()
@@ -276,7 +276,7 @@ func TestIntegrationWithAuth(t *testing.T) {
 	}
 
 	// Create server with authentication
-	server := NewServer("https://github.com/test/repo.git", tempDir, []string{"secret-key"}, 1*time.Minute)
+	server := NewServer("https://github.com/test/repo.git", tempDir, []string{"secret-key"}, "", "", 1*time.Minute)
 
 	// Create test server
 	ts := httptest.NewServer(server.Handler())
@@ -321,9 +321,115 @@ func TestIntegrationWithAuth(t *testing.T) {
 	}
 }
 
+func TestPrivateRepoWithToken(t *testing.T) {
+	// Create a temporary directory
+	tempDir := t.TempDir()
+
+	// Create server with token authentication
+	server := NewServer("https://github.com/private/repo.git", tempDir, []string{}, "test-token", "", 1*time.Minute)
+
+	// Verify the server has the token
+	if server.gitToken != "test-token" {
+		t.Errorf("Expected gitToken to be 'test-token', got '%s'", server.gitToken)
+	}
+
+	// Verify SSH key path is empty
+	if server.sshKeyPath != "" {
+		t.Errorf("Expected sshKeyPath to be empty, got '%s'", server.sshKeyPath)
+	}
+}
+
+func TestPrivateRepoWithSSHKey(t *testing.T) {
+	// Create a temporary directory
+	tempDir := t.TempDir()
+
+	// Create server with SSH key authentication
+	server := NewServer("git@github.com:private/repo.git", tempDir, []string{}, "", "/path/to/ssh/key", 1*time.Minute)
+
+	// Verify the server has the SSH key path
+	if server.sshKeyPath != "/path/to/ssh/key" {
+		t.Errorf("Expected sshKeyPath to be '/path/to/ssh/key', got '%s'", server.sshKeyPath)
+	}
+
+	// Verify token is empty
+	if server.gitToken != "" {
+		t.Errorf("Expected gitToken to be empty, got '%s'", server.gitToken)
+	}
+}
+
+func TestPrivateRepoWithBothAuthMethods(t *testing.T) {
+	// Create a temporary directory
+	tempDir := t.TempDir()
+
+	// Create server with both authentication methods
+	server := NewServer("https://github.com/private/repo.git", tempDir, []string{}, "test-token", "/path/to/ssh/key", 1*time.Minute)
+
+	// Verify the server has both credentials
+	if server.gitToken != "test-token" {
+		t.Errorf("Expected gitToken to be 'test-token', got '%s'", server.gitToken)
+	}
+	if server.sshKeyPath != "/path/to/ssh/key" {
+		t.Errorf("Expected sshKeyPath to be '/path/to/ssh/key', got '%s'", server.sshKeyPath)
+	}
+}
+
+func TestDefaultCloneOrPullWithToken(t *testing.T) {
+	// Create a temporary directory
+	tempDir := t.TempDir()
+
+	// Create a mock git repository
+	gitDir := filepath.Join(tempDir, ".git")
+	if err := os.MkdirAll(gitDir, 0755); err != nil {
+		t.Fatalf("Failed to create .git directory: %v", err)
+	}
+
+	// Create server with token authentication
+	server := NewServer("https://github.com/private/repo.git", tempDir, []string{}, "test-token", "", 1*time.Minute)
+
+	// Test that the server has the correct token
+	if server.gitToken != "test-token" {
+		t.Errorf("Expected gitToken to be 'test-token', got '%s'", server.gitToken)
+	}
+
+	// Test that the server has the correct repo URL
+	if server.repoURL != "https://github.com/private/repo.git" {
+		t.Errorf("Expected repoURL to be 'https://github.com/private/repo.git', got '%s'", server.repoURL)
+	}
+
+	// We can't easily test the actual git command execution without
+	// complex mocking, but we can verify the server is configured correctly
+}
+
+func TestDefaultCloneOrPullWithSSHKey(t *testing.T) {
+	// Create a temporary directory
+	tempDir := t.TempDir()
+
+	// Create a mock git repository
+	gitDir := filepath.Join(tempDir, ".git")
+	if err := os.MkdirAll(gitDir, 0755); err != nil {
+		t.Fatalf("Failed to create .git directory: %v", err)
+	}
+
+	// Create server with SSH key authentication
+	server := NewServer("git@github.com:private/repo.git", tempDir, []string{}, "", "/path/to/ssh/key", 1*time.Minute)
+
+	// Test that the server has the correct SSH key path
+	if server.sshKeyPath != "/path/to/ssh/key" {
+		t.Errorf("Expected sshKeyPath to be '/path/to/ssh/key', got '%s'", server.sshKeyPath)
+	}
+
+	// Test that the server has the correct repo URL
+	if server.repoURL != "git@github.com:private/repo.git" {
+		t.Errorf("Expected repoURL to be 'git@github.com:private/repo.git', got '%s'", server.repoURL)
+	}
+
+	// We can't easily test the actual git command execution without
+	// complex mocking, but we can verify the server is configured correctly
+}
+
 // Benchmark for authentication middleware
 func BenchmarkAuthMiddleware(b *testing.B) {
-	server := NewServer("https://github.com/test/repo.git", "./test", []string{"key1", "key2"}, 1*time.Minute)
+	server := NewServer("https://github.com/test/repo.git", "./test", []string{"key1", "key2"}, "", "", 1*time.Minute)
 
 	handler := server.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

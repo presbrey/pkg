@@ -140,6 +140,78 @@ example-auth: build
 	@echo "Server running with auth. Test with:"
 	@echo "  curl -H 'Authorization: Bearer test-key-1' http://localhost:$(PORT)/"
 
+## example-pat: Run example with Personal Access Token (PAT) authentication
+example-pat: build
+	@if [ -z "$(git_token)" ]; then \
+		echo "Error: git_token parameter is required"; \
+		echo "Usage: make example-pat git_token=your_token_here"; \
+		exit 1; \
+	fi
+	PORT=$(PORT) ./$(BINARY_NAME) \
+		-repo https://github.com/user/private-repo.git \
+		-git-token $(git_token) \
+		-dir ./pat-repo \
+		-interval 1m
+	@echo "Server running with PAT authentication"
+
+## example-ssh: Run example with SSH key authentication
+example-ssh: build
+	@if [ -z "$(ssh_key_path)" ]; then \
+		echo "Error: ssh_key_path parameter is required"; \
+		echo "Usage: make example-ssh ssh_key_path=/path/to/ssh/key"; \
+		exit 1; \
+	fi
+	PORT=$(PORT) ./$(BINARY_NAME) \
+		-repo git@github.com:user/private-repo.git \
+		-ssh-key-path $(ssh_key_path) \
+		-dir ./ssh-repo \
+		-interval 1m
+	@echo "Server running with SSH key authentication"
+
+## docker-pat: Run Docker container with PAT authentication
+docker-pat: docker-build
+	@if [ -z "$(repo)" ]; then \
+		echo "Error: repo parameter is required"; \
+		echo "Usage: make docker-pat repo=https://github.com/user/private-repo.git git_token=your_token_here"; \
+		exit 1; \
+	fi
+	docker run -d \
+		--name $(BINARY_NAME)-pat \
+		-p $(PORT):$(PORT) \
+		-e PORT=$(PORT) \
+		$(if $(git_token),-e GIT_TOKEN=$(git_token)) \
+		$(DOCKER_IMAGE) \
+		-repo $(repo) \
+		$(if $(keys),-keys "$(keys)") \
+		$(if $(interval),-interval $(interval))
+	@echo "Container started: $(BINARY_NAME)-pat"
+	@echo "Access at: http://localhost:$(PORT)"
+
+## docker-ssh: Run Docker container with SSH key authentication
+docker-ssh: docker-build
+	@if [ -z "$(repo)" ]; then \
+		echo "Error: repo parameter is required"; \
+		echo "Usage: make docker-ssh repo=git@github.com:user/private-repo.git ssh_key_path=/path/to/ssh/key"; \
+		exit 1; \
+	fi
+	@if [ -z "$(ssh_key_path)" ]; then \
+		echo "Error: ssh_key_path parameter is required"; \
+		echo "Usage: make docker-ssh repo=git@github.com:user/private-repo.git ssh_key_path=/path/to/ssh/key"; \
+		exit 1; \
+	fi
+	docker run -d \
+		--name $(BINARY_NAME)-ssh \
+		-p $(PORT):$(PORT) \
+		-e PORT=$(PORT) \
+		-v $(ssh_key_path):$(ssh_key_path):ro \
+		$(if $(ssh_key_path),-e GIT_SSH_KEY=$(ssh_key_path)) \
+		$(DOCKER_IMAGE) \
+		-repo $(repo) \
+		$(if $(keys),-keys "$(keys)") \
+		$(if $(interval),-interval $(interval))
+	@echo "Container started: $(BINARY_NAME)-ssh"
+	@echo "Access at: http://localhost:$(PORT)"
+
 # Check if git is installed
 check-deps:
 	@which git > /dev/null || (echo "Error: git is not installed" && exit 1)

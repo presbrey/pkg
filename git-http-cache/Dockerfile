@@ -14,11 +14,10 @@ COPY go.mod ./
 RUN go mod download
 
 # Copy source code
-COPY main.go .
-COPY main_test.go .
+COPY *.go ./
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o git-http-cache main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o git-http-cache .
 
 # Run tests during build (optional)
 RUN go test -v
@@ -57,3 +56,20 @@ ENTRYPOINT ["./git-http-cache"]
 
 # Default command (can be overridden)
 CMD ["-repo", "https://github.com/golang/example.git", "-dir", "/app/repo"]
+
+# Authentication options:
+#
+# 1. Personal Access Token (PAT) for HTTPS repositories:
+#    docker run -e GIT_TOKEN=your_token_here git-http-cache -repo https://github.com/user/private-repo.git
+#    or
+#    docker run git-http-cache -repo https://github.com/user/private-repo.git -git-token your_token_here
+#
+# 2. SSH Key for SSH repositories:
+#    docker run -e GIT_SSH_KEY=/path/to/ssh/key -v /host/path/to/ssh/key:/path/to/ssh/key:ro git-http-cache -repo git@github.com:user/private-repo.git
+#    or
+#    docker run -v /host/path/to/ssh/key:/path/to/ssh/key:ro git-http-cache -repo git@github.com:user/private-repo.git -ssh-key-path /path/to/ssh/key
+#
+# 3. Bearer token authentication for API access:
+#    docker run -e BEARER_KEYS=key1,key2,key3 git-http-cache
+#    or
+#    docker run git-http-cache -bearer-keys key1,key2,key3

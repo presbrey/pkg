@@ -1,6 +1,6 @@
 # Go Utility Packages
 
-A collection of useful Go packages: hooks, syncmap, syncthing, echovalidator, and slugs.
+A collection of useful Go packages: hooks, syncmap, syncthing, echovalidator, slugs, and git-http-cache.
 
 ## Packages
 
@@ -59,6 +59,94 @@ A Go package for generating URL-safe slugs with a fluent API pattern.
 - Proper type conversion for numeric types and nested maps
 - Error handling and update notifications
 - TLS configuration options
+
+### [git-http-cache](./git-http-cache)
+
+`git-http-cache` is a simple HTTP server that serves files from a Git repository, with support for authentication and automatic updates.
+
+#### Key Features
+
+- Serves files from a Git repository via HTTP
+- Supports bearer token authentication for API access
+- Automatically pulls the latest changes from the repository at configurable intervals
+- Supports both HTTPS and SSH repository URLs
+- Supports authentication for private repositories using:
+  - Personal Access Tokens (PAT) for HTTPS repositories
+  - SSH keys for SSH repositories
+- Environment variable support for configuration
+
+#### Authentication for Private Repositories
+
+The git-http-cache server supports two methods for authenticating with private Git repositories:
+
+##### Personal Access Token (PAT) Authentication
+
+For HTTPS repository URLs, you can use a Personal Access Token (PAT) for authentication. This is the recommended method for GitHub, GitLab, and other Git hosting services.
+
+**Command-line flag:**
+```bash
+./git-http-cache -repo-url https://github.com/user/private-repo.git -git-token your_token_here
+```
+
+**Environment variable:**
+```bash
+export GIT_TOKEN=your_token_here
+./git-http-cache -repo-url https://github.com/user/private-repo.git
+```
+
+When using PAT authentication, the server modifies the repository URL to include the token:
+```
+https://github.com/user/private-repo.git → https://TOKEN@github.com/user/private-repo.git
+```
+
+##### SSH Key Authentication
+
+For SSH repository URLs (e.g., `git@github.com:user/private-repo.git`), you can use an SSH key for authentication.
+
+**Command-line flag:**
+```bash
+./git-http-cache -repo-url git@github.com:user/private-repo.git -ssh-key-path /path/to/ssh/key
+```
+
+**Environment variable:**
+```bash
+export GIT_SSH_KEY=/path/to/ssh/key
+./git-http-cache -repo-url git@github.com:user/private-repo.git
+```
+
+When using SSH key authentication, the server sets the `GIT_SSH_COMMAND` environment variable to specify the SSH key:
+```
+GIT_SSH_COMMAND="ssh -i /path/to/ssh/key -o StrictHostKeyChecking=no"
+```
+
+#### Usage Examples
+
+**Basic usage with a public repository:**
+```bash
+./git-http-cache -repo-url https://github.com/user/public-repo.git -clone-dir /tmp/repo
+```
+
+**Using a private repository with PAT:**
+```bash
+./git-http-cache -repo-url https://github.com/user/private-repo.git -git-token your_token_here -clone-dir /tmp/repo
+```
+
+**Using a private repository with SSH key:**
+```bash
+./git-http-cache -repo-url git@github.com:user/private-repo.git -ssh-key-path ~/.ssh/id_rsa -clone-dir /tmp/repo
+```
+
+**Using environment variables:**
+```bash
+export GIT_TOKEN=your_token_here
+export GIT_SSH_KEY=~/.ssh/id_rsa
+./git-http-cache -repo-url https://github.com/user/private-repo.git -clone-dir /tmp/repo
+```
+
+**With API authentication:**
+```bash
+./git-http-cache -repo-url https://github.com/user/repo.git -bearer-keys key1,key2,key3
+```
 
 ## Comparison
 

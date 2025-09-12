@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+  # Basic service with public repository
   git-http-cache:
     build: .
     ports:
@@ -19,8 +20,6 @@ services:
     volumes:
       # Optional: Persist the cloned repository between container restarts
       - repo-data:/app/repo
-      # Optional: Mount SSH keys for private repositories
-      # - ~/.ssh:/root/.ssh:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:5000/"]
@@ -28,6 +27,72 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  # Service with Personal Access Token (PAT) authentication for HTTPS repositories
+  git-http-cache-pat:
+    build: .
+    ports:
+      - "5001:5000"
+    environment:
+      - PORT=5000
+      # Set your Personal Access Token here
+      - GIT_TOKEN=your_personal_access_token_here
+    command:
+      - "-repo"
+      - "https://github.com/yourusername/your-private-repo.git"
+      - "-keys"
+      - "secret-key-1,secret-key-2,secret-key-3"
+      - "-interval"
+      - "2m"
+      - "-dir"
+      - "/app/repo"
+    volumes:
+      # Persist the cloned repository between container restarts
+      - repo-data-pat:/app/repo
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    profiles:
+      - pat
+
+  # Service with SSH key authentication for SSH repositories
+  git-http-cache-ssh:
+    build: .
+    ports:
+      - "5002:5000"
+    environment:
+      - PORT=5000
+      # Set the path to your SSH key here
+      - GIT_SSH_KEY=/root/.ssh/id_rsa
+    command:
+      - "-repo"
+      - "git@github.com:yourusername/your-private-repo.git"
+      - "-keys"
+      - "secret-key-1,secret-key-2,secret-key-3"
+      - "-interval"
+      - "2m"
+      - "-dir"
+      - "/app/repo"
+    volumes:
+      # Persist the cloned repository between container restarts
+      - repo-data-ssh:/app/repo
+      # Mount your SSH key (replace with your actual path)
+      - ~/.ssh/id_rsa:/root/.ssh/id_rsa:ro
+      # Mount known_hosts file to avoid host key verification issues
+      - ~/.ssh/known_hosts:/root/.ssh/known_hosts:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    profiles:
+      - ssh
 
   # Optional: Nginx reverse proxy with SSL
   nginx:
@@ -44,6 +109,8 @@ services:
 
 volumes:
   repo-data:
+  repo-data-pat:
+  repo-data-ssh:
 
 # Example nginx.conf for reverse proxy:
 # 

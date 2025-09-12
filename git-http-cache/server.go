@@ -19,6 +19,8 @@ import (
 var (
 	repoURL      = flag.String("repo", "", "Git repository URL to clone and serve")
 	bearerKeys   = flag.String("keys", "", "Comma-separated list of bearer tokens for authentication")
+	gitToken     = flag.String("token", "", "Personal access token for private repository authentication")
+	sshKeyPath   = flag.String("ssh-key", "", "Path to SSH private key for SSH-based authentication")
 	cloneDir     = flag.String("dir", "./repo", "Directory to clone the repository into")
 	pullInterval = flag.Duration("interval", 1*time.Minute, "Interval for pulling updates from git")
 )
@@ -28,6 +30,8 @@ type Server struct {
 	repoURL      string
 	cloneDir     string
 	bearerKeys   map[string]bool
+	gitToken     string
+	sshKeyPath   string
 	pullInterval time.Duration
 	mu           sync.RWMutex
 	stopChan     chan struct{}
@@ -36,7 +40,7 @@ type Server struct {
 }
 
 // NewServer creates a new Server instance
-func NewServer(repoURL, cloneDir string, keys []string, interval time.Duration) *Server {
+func NewServer(repoURL, cloneDir string, keys []string, gitToken, sshKeyPath string, interval time.Duration) *Server {
 	keyMap := make(map[string]bool)
 	for _, key := range keys {
 		if key != "" {
@@ -48,6 +52,8 @@ func NewServer(repoURL, cloneDir string, keys []string, interval time.Duration) 
 		repoURL:      repoURL,
 		cloneDir:     cloneDir,
 		bearerKeys:   keyMap,
+		gitToken:     gitToken,
+		sshKeyPath:   sshKeyPath,
 		pullInterval: interval,
 		stopChan:     make(chan struct{}),
 	}
@@ -63,10 +69,32 @@ func (s *Server) defaultCloneOrPull() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Determine the authentication method based on repo URL and available credentials
+	var cloneURL string
+	var env []string
+
+	// Check if it's an HTTPS URL and we have a token
+	if strings.HasPrefix(s.repoURL, "https://") && s.gitToken != "" {
+		// Modify the URL to include the token for authentication
+		// Example: https://github.com/user/repo.git -> https://TOKEN@github.com/user/repo.git
+		cloneURL = strings.Replace(s.repoURL, "https://", "https://"+s.gitToken+"@", 1)
+		log.Printf("Using token authentication for HTTPS repository")
+	} else if strings.HasPrefix(s.repoURL, "git@") && s.sshKeyPath != "" {
+		// For SSH URLs, use the SSH key path
+		cloneURL = s.repoURL
+		env = append(os.Environ(), fmt.Sprintf("GIT_SSH_COMMAND=ssh -i %s -o StrictHostKeyChecking=no", s.sshKeyPath))
+		log.Printf("Using SSH key authentication for SSH repository")
+	} else {
+		// No authentication or not needed
+		cloneURL = s.repoURL
+		env = os.Environ()
+	}
+
 	if _, err := os.Stat(filepath.Join(s.cloneDir, ".git")); os.IsNotExist(err) {
 		// Clone the repository
 		log.Printf("Cloning repository %s into %s", s.repoURL, s.cloneDir)
-		cmd := exec.Command("git", "clone", s.repoURL, s.cloneDir)
+		cmd := exec.Command("git", "clone", cloneURL, s.cloneDir)
+		cmd.Env = env
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("failed to clone repository: %v\nOutput: %s", err, output)
@@ -77,6 +105,7 @@ func (s *Server) defaultCloneOrPull() error {
 		log.Printf("Pulling latest changes from repository")
 		cmd := exec.Command("git", "pull")
 		cmd.Dir = s.cloneDir
+		cmd.Env = env
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("failed to pull repository: %v\nOutput: %s", err, output)
@@ -184,6 +213,24 @@ func main() {
 		log.Println("Warning: No bearer keys configured, server will accept all requests")
 	}
 
+	// Get git token from environment variable if not provided via flag
+	gitToken := *gitToken
+	if gitToken == "" {
+		gitToken = os.Getenv("GIT_TOKEN")
+		if gitToken != "" {
+			log.Println("Using git token from environment variable")
+		}
+	}
+
+	// Get SSH key path from environment variable if not provided via flag
+	sshKeyPath := *sshKeyPath
+	if sshKeyPath == "" {
+		sshKeyPath = os.Getenv("GIT_SSH_KEY")
+		if sshKeyPath != "" {
+			log.Println("Using SSH key path from environment variable")
+		}
+	}
+
 	// Get port from environment or use default
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -191,7 +238,7 @@ func main() {
 	}
 
 	// Create server
-	server := NewServer(*repoURL, *cloneDir, keys, *pullInterval)
+	server := NewServer(*repoURL, *cloneDir, keys, gitToken, sshKeyPath, *pullInterval)
 
 	// Initial clone/pull
 	if err := server.CloneOrPull(); err != nil {
