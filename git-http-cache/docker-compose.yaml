@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  git-http-cache:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+    command:
+      - "-repo"
+      - "https://github.com/yourusername/your-repo.git"
+      - "-keys"
+      - "secret-key-1,secret-key-2,secret-key-3"
+      - "-interval"
+      - "2m"
+      - "-dir"
+      - "/app/repo"
+    volumes:
+      # Optional: Persist the cloned repository between container restarts
+      - repo-data:/app/repo
+      # Optional: Mount SSH keys for private repositories
+      # - ~/.ssh:/root/.ssh:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Nginx reverse proxy with SSL
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - git-http-cache
+    restart: unless-stopped
+
+volumes:
+  repo-data:
+
+# Example nginx.conf for reverse proxy:
+# 
+# events {
+#     worker_connections 1024;
+# }
+# 
+# http {
+#     upstream git-server {
+#         server git-http-cache:5000;
+#     }
+#     
+#     server {
+#         listen 80;
+#         server_name your-domain.com;
+#         return 301 https://$server_name$request_uri;
+#     }
+#     
+#     server {
+#         listen 443 ssl;
+#         server_name your-domain.com;
+#         
+#         ssl_certificate /etc/nginx/ssl/cert.pem;
+#         ssl_certificate_key /etc/nginx/ssl/key.pem;
+#         
+#         location / {
+#             proxy_pass http://git-server;
+#             proxy_set_header Host $host;
+#             proxy_set_header X-Real-IP $remote_addr;
+#             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#             proxy_set_header X-Forwarded-Proto $scheme;
+#             
+#             # Pass through Authorization header
+#             proxy_pass_header Authorization;
+#         }
+#     }
+# }
