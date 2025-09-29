@@ -1,12 +1,16 @@
 # Go Utility Packages
 
-A collection of useful Go packages: hooks, syncmap, syncthing, echovalidator, slugs, and git-http-cache.
+A collection of useful Go packages: hooks, syncmap, syncthing, echofly, echovalidator, slugs, and git-http-cache.
 
 ## Packages
 
 ### [cdns](./cdns)
 
 Provides utilities for interacting with various Content Delivery Network (CDN) providers (e.g., Cloudflare, Fly.io).
+
+### [echofly](./echofly)
+
+Provides middleware for the Echo web framework to make sessions sticky on Fly.io. This middleware ensures that user sessions are consistently routed to the same machine instance using cookies and the `Fly-Replay` header.
 
 ### [echovalidator](./echovalidator)
 
