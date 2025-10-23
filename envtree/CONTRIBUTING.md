@@ -39,7 +39,7 @@ Feature suggestions are welcome! Please create an issue describing:
 
 ```bash
 # Clone your fork
-git clone https://github.com/yourusername/envtree.git
+git clone https://github.com/presbrey/envtree.git
 cd envtree
 
 # Install dependencies

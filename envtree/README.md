@@ -1,4 +1,4 @@
-# envloader
+# envtree
 
 A flexible Go library for automatically loading environment variables from `.env` files. It searches for `.env` files in the current directory and all parent directories, making it perfect for monorepos and nested project structures.
 
@@ -14,7 +14,7 @@ A flexible Go library for automatically loading environment variables from `.env
 ## Installation
 
 ```bash
-go get github.com/yourusername/envloader
+go get github.com/presbrey/envtree
 ```
 
 ## Quick Start
@@ -25,11 +25,11 @@ go get github.com/yourusername/envloader
 package main
 
 import (
-    "github.com/yourusername/envloader"
+    "github.com/presbrey/envtree"
 )
 
 func init() {
-    envloader.AutoLoad()
+    envtree.AutoLoad()
 }
 
 func main() {
@@ -44,11 +44,11 @@ package main
 
 import (
     "log"
-    "github.com/yourusername/envloader"
+    "github.com/presbrey/envtree"
 )
 
 func main() {
-    if err := envloader.LoadDefault(); err != nil {
+    if err := envtree.LoadDefault(); err != nil {
         log.Fatalf("Failed to load env: %v", err)
     }
     
@@ -63,17 +63,17 @@ package main
 
 import (
     "log"
-    "github.com/yourusername/envloader"
+    "github.com/presbrey/envtree"
 )
 
 func main() {
-    config := &envloader.Config{
+    config := &envtree.Config{
         EnvFileName:      ".env.local",  // Custom file name
         Silent:           false,          // Enable logging
         PreferGoResolver: true,           // Use Go's DNS resolver
     }
     
-    loader := envloader.New(config)
+    loader := envtree.New(config)
     if err := loader.Load(); err != nil {
         log.Fatalf("Failed to load env: %v", err)
     }
@@ -86,12 +86,12 @@ func main() {
 package main
 
 import (
-    "github.com/yourusername/envloader"
+    "github.com/presbrey/envtree"
 )
 
 func main() {
     // This will panic if loading fails
-    envloader.MustLoadDefault()
+    envtree.MustLoadDefault()
     
     // Your environment variables are now loaded
 }
@@ -148,29 +148,29 @@ All three `.env` files will be loaded, with files closer to your app taking prec
 ### Silent Mode
 
 ```go
-config := &envloader.Config{
+config := &envtree.Config{
     Silent: true,  // No log output
 }
 
-loader := envloader.New(config)
+loader := envtree.New(config)
 loader.Load()
 ```
 
 ### Custom Environment File Name
 
 ```go
-config := &envloader.Config{
+config := &envtree.Config{
     EnvFileName: ".env.production",
 }
 
-loader := envloader.New(config)
+loader := envtree.New(config)
 loader.Load()
 ```
 
 ### Getting File Paths Without Loading
 
 ```go
-loader := envloader.New(nil)
+loader := envtree.New(nil)
 paths, err := loader.GetEnvFilePaths()
 if err != nil {
     log.Fatal(err)
@@ -208,7 +208,7 @@ func init() {
 **After:**
 ```go
 func init() {
-    envloader.MustLoadDefault()
+    envtree.MustLoadDefault()
 }
 ```
 
@@ -234,8 +234,8 @@ When testing, you may want to disable environment loading:
 ```go
 func TestSomething(t *testing.T) {
     // Option 1: Use Silent mode
-    config := &envloader.Config{Silent: true}
-    loader := envloader.New(config)
+    config := &envtree.Config{Silent: true}
+    loader := envtree.New(config)
     loader.Load()
     
     // Option 2: Don't load at all
@@ -251,10 +251,10 @@ func TestSomething(t *testing.T) {
 godotenv.Load()
 ```
 
-**envloader:**
+**envtree:**
 ```go
 // Finds and loads from current and all parent directories
-envloader.LoadDefault()
+envtree.LoadDefault()
 ```
 
 ## Dependencies

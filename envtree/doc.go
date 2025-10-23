@@ -1,19 +1,19 @@
 /*
-Package envloader provides utilities for loading environment variables from .env files.
+Package envtree provides utilities for loading environment variables from .env files.
 
 It automatically searches for .env files in the current directory and all parent
 directories, making it perfect for monorepos and nested project structures.
 
 # Quick Start
 
-The simplest way to use envloader is with AutoLoad in your init function:
+The simplest way to use envtree is with AutoLoad in your init function:
 
 	package main
 
-	import "github.com/yourusername/envloader"
+	import "github.com/presbrey/envtree"
 
 	func init() {
-		envloader.AutoLoad()
+		envtree.AutoLoad()
 	}
 
 	func main() {
@@ -22,30 +22,30 @@ The simplest way to use envloader is with AutoLoad in your init function:
 
 # Loading Strategies
 
-envloader provides several ways to load environment files:
+envtree provides several ways to load environment files:
 
 AutoLoad - For use in init(), loads with default settings and logs errors:
 
-	envloader.AutoLoad()
+	envtree.AutoLoad()
 
 LoadDefault - Returns error for explicit handling:
 
-	if err := envloader.LoadDefault(); err != nil {
+	if err := envtree.LoadDefault(); err != nil {
 		log.Fatal(err)
 	}
 
 MustLoadDefault - Panics on error:
 
-	envloader.MustLoadDefault()
+	envtree.MustLoadDefault()
 
 Custom Configuration - Fine-grained control:
 
-	config := &envloader.Config{
+	config := &envtree.Config{
 		EnvFileName:      ".env.production",
 		Silent:           true,
 		PreferGoResolver: true,
 	}
-	loader := envloader.New(config)
+	loader := envtree.New(config)
 	loader.Load()
 
 # How It Works

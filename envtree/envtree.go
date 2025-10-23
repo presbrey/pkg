@@ -5,7 +5,6 @@ package envtree
 import (
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"path/filepath"
 
@@ -16,30 +15,12 @@ import (
 type Config struct {
 	// EnvFileName is the name of the env file to search for (default: ".env")
 	EnvFileName string
-
-	// LogFlags sets the logging flags (default: log.Lshortfile | log.LstdFlags)
-	LogFlags int
-
-	// PreferGoResolver sets whether to prefer Go's built-in DNS resolver
-	// If false, uses cgo resolver (default: false)
-	PreferGoResolver bool
-
-	// Silent suppresses all log output
-	Silent bool
-
-	// StopAtRoot determines whether to stop searching at the filesystem root
-	// If false, continues to search until root is reached (default: true)
-	StopAtRoot bool
 }
 
 // DefaultConfig returns a Config with sensible defaults
 func DefaultConfig() *Config {
 	return &Config{
-		EnvFileName:      ".env",
-		LogFlags:         log.Lshortfile | log.LstdFlags,
-		PreferGoResolver: false,
-		Silent:           false,
-		StopAtRoot:       true,
+		EnvFileName: ".env",
 	}
 }
 
@@ -58,14 +39,6 @@ func New(config *Config) *Loader {
 
 // Load searches for environment files and loads them
 func (l *Loader) Load() error {
-	// Configure logging
-	if !l.config.Silent {
-		log.SetFlags(l.config.LogFlags)
-	}
-
-	// Configure DNS resolver
-	net.DefaultResolver.PreferGo = l.config.PreferGoResolver
-
 	// Get environment file paths
 	envFiles, err := l.getEnvFilePaths()
 	if err != nil {
@@ -77,12 +50,6 @@ func (l *Loader) Load() error {
 		if err := godotenv.Load(envFiles...); err != nil {
 			return fmt.Errorf("failed to load env files: %w", err)
 		}
-
-		if !l.config.Silent {
-			log.Printf("Loaded %d environment file(s): %v", len(envFiles), envFiles)
-		}
-	} else if !l.config.Silent {
-		log.Printf("No %s files found in current or parent directories", l.config.EnvFileName)
 	}
 
 	return nil

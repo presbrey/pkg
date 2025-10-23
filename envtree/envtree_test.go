@@ -13,17 +13,6 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("Expected EnvFileName to be '.env', got '%s'", config.EnvFileName)
 	}
 
-	if config.PreferGoResolver != false {
-		t.Error("Expected PreferGoResolver to be false")
-	}
-
-	if config.Silent != false {
-		t.Error("Expected Silent to be false")
-	}
-
-	if config.StopAtRoot != true {
-		t.Error("Expected StopAtRoot to be true")
-	}
 }
 
 func TestNew(t *testing.T) {
@@ -38,7 +27,6 @@ func TestNew(t *testing.T) {
 
 	customConfig := &Config{
 		EnvFileName: ".env.test",
-		Silent:      true,
 	}
 
 	loader = New(customConfig)
@@ -49,7 +37,7 @@ func TestNew(t *testing.T) {
 
 func TestGetEnvFilePaths(t *testing.T) {
 	// Create a temporary directory structure
-	tmpDir, err := os.MkdirTemp("", "envloader-test-*")
+	tmpDir, err := os.MkdirTemp("", "envtree-test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -83,7 +71,7 @@ func TestGetEnvFilePaths(t *testing.T) {
 	}
 
 	// Test the loader
-	loader := New(&Config{Silent: true})
+	loader := New(&Config{})
 	paths, err := loader.GetEnvFilePaths()
 	if err != nil {
 		t.Fatalf("GetEnvFilePaths failed: %v", err)
@@ -102,7 +90,7 @@ func TestGetEnvFilePaths(t *testing.T) {
 
 func TestLoadWithNoEnvFiles(t *testing.T) {
 	// Create a temporary directory with no .env files
-	tmpDir, err := os.MkdirTemp("", "envloader-test-noenv-*")
+	tmpDir, err := os.MkdirTemp("", "envtree-test-noenv-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -115,7 +103,7 @@ func TestLoadWithNoEnvFiles(t *testing.T) {
 		t.Fatalf("Failed to change directory: %v", err)
 	}
 
-	loader := New(&Config{Silent: true})
+	loader := New(&Config{})
 	err = loader.Load()
 
 	// Should not error when no env files exist
@@ -126,7 +114,7 @@ func TestLoadWithNoEnvFiles(t *testing.T) {
 
 func TestLoadWithValidEnvFile(t *testing.T) {
 	// Create a temporary directory with a valid .env file
-	tmpDir, err := os.MkdirTemp("", "envloader-test-valid-*")
+	tmpDir, err := os.MkdirTemp("", "envtree-test-valid-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -151,7 +139,7 @@ func TestLoadWithValidEnvFile(t *testing.T) {
 		t.Fatalf("Failed to change directory: %v", err)
 	}
 
-	loader := New(&Config{Silent: true})
+	loader := New(&Config{})
 	err = loader.Load()
 
 	if err != nil {
@@ -168,7 +156,7 @@ func TestLoadWithValidEnvFile(t *testing.T) {
 }
 
 func TestMustLoad(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "envloader-test-must-*")
+	tmpDir, err := os.MkdirTemp("", "envtree-test-must-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -181,7 +169,7 @@ func TestMustLoad(t *testing.T) {
 		t.Fatalf("Failed to change directory: %v", err)
 	}
 
-	loader := New(&Config{Silent: true})
+	loader := New(&Config{})
 
 	// Should not panic when there are no env files
 	defer func() {
@@ -194,7 +182,7 @@ func TestMustLoad(t *testing.T) {
 }
 
 func TestCustomEnvFileName(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "envloader-test-custom-*")
+	tmpDir, err := os.MkdirTemp("", "envtree-test-custom-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -220,7 +208,6 @@ func TestCustomEnvFileName(t *testing.T) {
 
 	loader := New(&Config{
 		EnvFileName: ".env.custom",
-		Silent:      true,
 	})
 
 	err = loader.Load()
@@ -236,7 +223,7 @@ func TestCustomEnvFileName(t *testing.T) {
 }
 
 func TestLoadDefault(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "envloader-test-default-*")
+	tmpDir, err := os.MkdirTemp("", "envtree-test-default-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -257,7 +244,7 @@ func TestLoadDefault(t *testing.T) {
 }
 
 func TestMustLoadDefault(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "envloader-test-mustdefault-*")
+	tmpDir, err := os.MkdirTemp("", "envtree-test-mustdefault-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -280,7 +267,7 @@ func TestMustLoadDefault(t *testing.T) {
 }
 
 func TestAutoLoad(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "envloader-test-auto-*")
+	tmpDir, err := os.MkdirTemp("", "envtree-test-auto-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
