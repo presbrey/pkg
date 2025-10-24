@@ -33,6 +33,8 @@ google-openid-middleware/
 | `ClientSecret` | string | *required* | Google OAuth2 client secret |
 | `RedirectURL` | string | *required*\* | OAuth2 callback URL (static) |
 | `RedirectPath` | string | *required*\* | OAuth2 callback path (dynamic) - generates full URL from request context |
+| `TrustForwardedHeaders` | bool | `false` | Trust X-Forwarded-\* and Forwarded headers (only enable behind trusted proxy) |
+| `AllowedRedirectHosts` | []string | `nil` | Allowed hostnames for redirect URL generation (restricts host spoofing) |
 | `AllowedHostedDomains` | []string | `nil` | List of allowed Google Workspace domains |
 | `Scopes` | []string | `["openid", "email", "profile"]` | OAuth2 scopes to request |
 | `SessionCookieName` | string | `"google_openid_session"` | Session cookie name |
@@ -55,32 +57,54 @@ google-openid-middleware/
 The middleware supports two ways to configure the OAuth2 callback URL:
 
 ### Static RedirectURL
+
 Use a fixed, absolute URL that doesn't change:
+
 ```go
 RedirectURL: "https://example.com/auth/google/callback"
 ```
+
 Best for single-domain applications with a known URL.
 
 ### Dynamic RedirectPath
+
 Use a relative path that generates the full URL from the incoming request:
+
 ```go
 RedirectPath: "/auth/google/callback"
 ```
+
 The middleware automatically detects:
-- **Scheme**: `http` or `https` (from TLS or X-Forwarded-Proto header)
-- **Host**: From the request's Host header
-- **Path**: Your configured path
+
+- **Scheme**: `http` or `https` (from TLS or forwarded headers when trusted)
+- **Host**: From request Host header (or X-Forwarded-Host/Forwarded when trusted)
+- **Path**: Your configured path (normalized with leading `/`)
 
 **Benefits:**
+
 - Works seamlessly with multiple domains (e.g., production, staging, development)
-- Automatically adapts to proxy/load balancer schemes (via X-Forwarded-Proto)
+- Automatically adapts to proxy/load balancer schemes
 - No hardcoded URLs - perfect for containerized/cloud deployments
 - Simplifies configuration across different environments
 
+**Security Configuration:**
+
+When using `RedirectPath`, you should configure:
+
+- `TrustForwardedHeaders`: Set to `true` ONLY if behind a trusted proxy/load balancer
+- `AllowedRedirectHosts`: Restrict allowed hostnames to prevent host header spoofing
+
+```go
+RedirectPath: "/auth/google/callback",
+TrustForwardedHeaders: true, // Only if behind trusted proxy
+AllowedRedirectHosts: []string{"example.com", "staging.example.com"},
+```
+
 **Example:** When using `RedirectPath: "/auth/google/callback"`:
+
 - Request to `http://localhost:8080` → Callback: `http://localhost:8080/auth/google/callback`
 - Request to `https://example.com` → Callback: `https://example.com/auth/google/callback`
-- Behind proxy with X-Forwarded-Proto → Uses forwarded scheme automatically
+- Behind proxy with X-Forwarded-Proto → Uses forwarded scheme (if TrustForwardedHeaders enabled)
 
 ---
 
@@ -92,6 +116,10 @@ The middleware automatically detects:
 - ✅ Hosted domain validation from ID token claims
 - ✅ SameSite cookie protection against CSRF
 - ✅ Automatic token expiration handling
+- ✅ Host header validation and sanitization
+- ✅ RFC7239 Forwarded header support with opt-in trust model
+- ✅ Thread-safe per-request OAuth2 config (no data races)
+- ✅ Multi-value header parsing (comma-separated)
 
 ---
 
