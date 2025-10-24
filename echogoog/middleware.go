@@ -237,7 +237,10 @@ func (m *Middleware) handleLogin(c echo.Context) error {
 	m.setSessionCookie(c, stateKey, state, 600) // 10 minutes
 
 	// Get per-request oauth2 config (avoids data race on shared config)
-	oauth2Cfg := m.getOAuth2Config(c)
+	oauth2Cfg, err := m.getOAuth2Config(c)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Host not allowed for OAuth redirect")
+	}
 
 	// Build authorization URL with hd parameter if hosted domains are specified
 	authURL := oauth2Cfg.AuthCodeURL(state, oauth2.AccessTypeOffline)
@@ -267,7 +270,10 @@ func (m *Middleware) handleCallback(c echo.Context) error {
 	m.clearCookie(c, stateKey)
 
 	// Get per-request oauth2 config (avoids data race on shared config)
-	oauth2Cfg := m.getOAuth2Config(c)
+	oauth2Cfg, err := m.getOAuth2Config(c)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Host not allowed for OAuth redirect")
+	}
 
 	// Exchange code for token
 	code := c.QueryParam("code")
@@ -400,7 +406,7 @@ func generateRandomState() (string, error) {
 
 // getRedirectURL generates the redirect URL from echo.Context when RedirectPath is set
 // Otherwise returns the static RedirectURL
-func (m *Middleware) getRedirectURL(c echo.Context) string {
+func (m *Middleware) getRedirectURL(c echo.Context) (string, error) {
 	if m.config.RedirectPath != "" {
 		scheme := m.getScheme(c)
 		host := m.getHost(c)
@@ -408,28 +414,31 @@ func (m *Middleware) getRedirectURL(c echo.Context) string {
 		// Validate host if AllowedRedirectHosts is configured
 		if len(m.config.AllowedRedirectHosts) > 0 {
 			if !m.isHostAllowed(host) {
-				// Fall back to first allowed host if current host is not allowed
-				host = m.config.AllowedRedirectHosts[0]
+				return "", fmt.Errorf("host %q is not allowed for OAuth redirect", host)
 			}
 		}
 
-		return fmt.Sprintf("%s://%s%s", scheme, host, m.config.RedirectPath)
+		return fmt.Sprintf("%s://%s%s", scheme, host, m.config.RedirectPath), nil
 	}
-	return m.config.RedirectURL
+	return m.config.RedirectURL, nil
 }
 
 // getOAuth2Config returns a per-request copy of the OAuth2 config
 // This avoids data races when using dynamic RedirectPath
-func (m *Middleware) getOAuth2Config(c echo.Context) *oauth2.Config {
+func (m *Middleware) getOAuth2Config(c echo.Context) (*oauth2.Config, error) {
 	// Create a shallow copy of the oauth2 config
 	cfg := *m.oauth2Config
 
 	// Update redirect URL if using dynamic RedirectPath
 	if m.config.RedirectPath != "" {
-		cfg.RedirectURL = m.getRedirectURL(c)
+		redirectURL, err := m.getRedirectURL(c)
+		if err != nil {
+			return nil, err
+		}
+		cfg.RedirectURL = redirectURL
 	}
 
-	return &cfg
+	return &cfg, nil
 }
 
 // getScheme determines the scheme (http/https) from the request
