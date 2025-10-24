@@ -1,1 +1,5 @@
 .aider*
+
+# Compiled binaries in example directories
+**/example/example
+**/example/*.exe
