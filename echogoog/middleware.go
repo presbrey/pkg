@@ -33,6 +33,17 @@ type Config struct {
 	// Example: "/auth/google/callback" becomes "https://example.com/auth/google/callback"
 	RedirectPath string
 
+	// TrustForwardedHeaders controls whether to trust X-Forwarded-* and Forwarded headers
+	// SECURITY: Only enable when behind a trusted proxy/load balancer that sets these headers
+	// Default: false (for security)
+	TrustForwardedHeaders bool
+
+	// AllowedRedirectHosts is an optional list of allowed hostnames for redirect URL generation
+	// When set, only these hosts are allowed when using RedirectPath
+	// Example: ["example.com", "staging.example.com", "localhost:8080"]
+	// Default: empty (allows any host - use with caution)
+	AllowedRedirectHosts []string
+
 	// AllowedHostedDomains is a list of Google Workspace domains allowed to authenticate
 	// Example: ["example.com", "company.org"]
 	AllowedHostedDomains []string
@@ -109,6 +120,12 @@ func New(config *Config) (*Middleware, error) {
 	}
 	if config.RedirectURL != "" && config.RedirectPath != "" {
 		return nil, errors.New("cannot specify both RedirectURL and RedirectPath")
+	}
+
+	// Normalize RedirectPath to ensure it starts with exactly one leading "/"
+	if config.RedirectPath != "" {
+		config.RedirectPath = strings.TrimSpace(config.RedirectPath)
+		config.RedirectPath = "/" + strings.TrimLeft(config.RedirectPath, "/")
 	}
 
 	// Set defaults
@@ -219,13 +236,11 @@ func (m *Middleware) handleLogin(c echo.Context) error {
 	// Store state in session cookie
 	m.setSessionCookie(c, stateKey, state, 600) // 10 minutes
 
-	// Update redirect URL dynamically if using RedirectPath
-	if m.config.RedirectPath != "" {
-		m.oauth2Config.RedirectURL = m.getRedirectURL(c)
-	}
+	// Get per-request oauth2 config (avoids data race on shared config)
+	oauth2Cfg := m.getOAuth2Config(c)
 
 	// Build authorization URL with hd parameter if hosted domains are specified
-	authURL := m.oauth2Config.AuthCodeURL(state, oauth2.AccessTypeOffline)
+	authURL := oauth2Cfg.AuthCodeURL(state, oauth2.AccessTypeOffline)
 
 	// Add hosted domain hint if only one domain is allowed
 	if len(m.config.AllowedHostedDomains) == 1 {
@@ -237,11 +252,6 @@ func (m *Middleware) handleLogin(c echo.Context) error {
 
 // handleCallback processes the OAuth2 callback
 func (m *Middleware) handleCallback(c echo.Context) error {
-	// Update redirect URL dynamically if using RedirectPath
-	if m.config.RedirectPath != "" {
-		m.oauth2Config.RedirectURL = m.getRedirectURL(c)
-	}
-
 	// Verify state
 	stateCookie, err := c.Cookie(stateKey)
 	if err != nil {
@@ -256,9 +266,12 @@ func (m *Middleware) handleCallback(c echo.Context) error {
 	// Clear state cookie
 	m.clearCookie(c, stateKey)
 
+	// Get per-request oauth2 config (avoids data race on shared config)
+	oauth2Cfg := m.getOAuth2Config(c)
+
 	// Exchange code for token
 	code := c.QueryParam("code")
-	oauth2Token, err := m.oauth2Config.Exchange(c.Request().Context(), code)
+	oauth2Token, err := oauth2Cfg.Exchange(c.Request().Context(), code)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to exchange token")
 	}
@@ -389,18 +402,160 @@ func generateRandomState() (string, error) {
 // Otherwise returns the static RedirectURL
 func (m *Middleware) getRedirectURL(c echo.Context) string {
 	if m.config.RedirectPath != "" {
-		scheme := "https"
-		if c.Request().TLS == nil {
-			scheme = "http"
+		scheme := m.getScheme(c)
+		host := m.getHost(c)
+
+		// Validate host if AllowedRedirectHosts is configured
+		if len(m.config.AllowedRedirectHosts) > 0 {
+			if !m.isHostAllowed(host) {
+				// Fall back to first allowed host if current host is not allowed
+				host = m.config.AllowedRedirectHosts[0]
+			}
 		}
 
-		// Use X-Forwarded-Proto header if available (for proxies/load balancers)
-		if proto := c.Request().Header.Get("X-Forwarded-Proto"); proto != "" {
-			scheme = proto
-		}
-
-		host := c.Request().Host
 		return fmt.Sprintf("%s://%s%s", scheme, host, m.config.RedirectPath)
 	}
 	return m.config.RedirectURL
+}
+
+// getOAuth2Config returns a per-request copy of the OAuth2 config
+// This avoids data races when using dynamic RedirectPath
+func (m *Middleware) getOAuth2Config(c echo.Context) *oauth2.Config {
+	// Create a shallow copy of the oauth2 config
+	cfg := *m.oauth2Config
+
+	// Update redirect URL if using dynamic RedirectPath
+	if m.config.RedirectPath != "" {
+		cfg.RedirectURL = m.getRedirectURL(c)
+	}
+
+	return &cfg
+}
+
+// getScheme determines the scheme (http/https) from the request
+func (m *Middleware) getScheme(c echo.Context) string {
+	// Only trust forwarded headers if explicitly configured
+	if m.config.TrustForwardedHeaders {
+		// Try RFC7239 Forwarded header first
+		if proto := m.parseForwardedProto(c.Request().Header.Get("Forwarded")); proto != "" {
+			return proto
+		}
+
+		// Fall back to X-Forwarded-Proto (Echo's c.Scheme() handles this)
+		return c.Scheme()
+	}
+
+	// When not trusting forwarded headers, check TLS directly
+	if c.Request().TLS != nil {
+		return "https"
+	}
+	return "http"
+}
+
+// getHost determines the host from the request
+func (m *Middleware) getHost(c echo.Context) string {
+	// Only trust forwarded headers if explicitly configured
+	if m.config.TrustForwardedHeaders {
+		// Try X-Forwarded-Host first
+		if host := m.getFirstHeaderValue(c.Request().Header.Get("X-Forwarded-Host")); host != "" {
+			return m.sanitizeHost(host)
+		}
+
+		// Try RFC7239 Forwarded header
+		if host := m.parseForwardedHost(c.Request().Header.Get("Forwarded")); host != "" {
+			return m.sanitizeHost(host)
+		}
+	}
+
+	// Fall back to Request.Host
+	return m.sanitizeHost(c.Request().Host)
+}
+
+// getFirstHeaderValue splits a comma-separated header value and returns the first non-empty token
+func (m *Middleware) getFirstHeaderValue(header string) string {
+	if header == "" {
+		return ""
+	}
+
+	parts := strings.Split(header, ",")
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+// parseForwardedProto extracts the proto parameter from RFC7239 Forwarded header
+func (m *Middleware) parseForwardedProto(forwarded string) string {
+	if forwarded == "" {
+		return ""
+	}
+
+	// Split by comma for multiple proxies, use first
+	parts := strings.Split(forwarded, ",")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		// Look for proto= parameter
+		for _, param := range strings.Split(part, ";") {
+			param = strings.TrimSpace(param)
+			if strings.HasPrefix(strings.ToLower(param), "proto=") {
+				proto := strings.TrimPrefix(param[6:], "\"")
+				proto = strings.TrimSuffix(proto, "\"")
+				proto = strings.ToLower(strings.TrimSpace(proto))
+				if proto == "http" || proto == "https" {
+					return proto
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// parseForwardedHost extracts the host parameter from RFC7239 Forwarded header
+func (m *Middleware) parseForwardedHost(forwarded string) string {
+	if forwarded == "" {
+		return ""
+	}
+
+	// Split by comma for multiple proxies, use first
+	parts := strings.Split(forwarded, ",")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		// Look for host= parameter
+		for _, param := range strings.Split(part, ";") {
+			param = strings.TrimSpace(param)
+			if strings.HasPrefix(strings.ToLower(param), "host=") {
+				host := strings.TrimPrefix(param[5:], "\"")
+				host = strings.TrimSuffix(host, "\"")
+				return strings.TrimSpace(host)
+			}
+		}
+	}
+	return ""
+}
+
+// sanitizeHost performs basic validation and sanitization on the host
+func (m *Middleware) sanitizeHost(host string) string {
+	// Remove any whitespace
+	host = strings.TrimSpace(host)
+
+	// Basic validation: ensure no control characters or invalid URL characters
+	for _, ch := range host {
+		if ch < 32 || ch == 127 || strings.ContainsRune("<>\"\\{}|^`", ch) {
+			return "localhost" // Return safe default on invalid host
+		}
+	}
+
+	return host
+}
+
+// isHostAllowed checks if the host is in the AllowedRedirectHosts list
+func (m *Middleware) isHostAllowed(host string) bool {
+	for _, allowed := range m.config.AllowedRedirectHosts {
+		if strings.EqualFold(host, allowed) {
+			return true
+		}
+	}
+	return false
 }

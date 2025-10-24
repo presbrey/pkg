@@ -29,6 +29,12 @@ func main() {
 		// This allows the app to work across different domains/schemes automatically
 		RedirectPath: "/auth/google/callback",
 
+		// SECURITY: Enable only when behind a trusted proxy/load balancer
+		TrustForwardedHeaders: false, // Set to true if behind proxy
+
+		// Optional: Restrict allowed hosts for redirect URL generation
+		// AllowedRedirectHosts: []string{"localhost:8080", "example.com"},
+
 		// Only allow users from these Google Workspace domains
 		AllowedHostedDomains: []string{
 			"example.com",
