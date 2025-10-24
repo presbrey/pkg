@@ -25,7 +25,13 @@ type Config struct {
 	ClientSecret string
 
 	// RedirectURL is the callback URL for OAuth2 flow
+	// Either RedirectURL or RedirectPath must be provided
 	RedirectURL string
+
+	// RedirectPath is the callback path for OAuth2 flow (alternative to RedirectURL)
+	// When set, the absolute URL is generated dynamically from the request's scheme and host
+	// Example: "/auth/google/callback" becomes "https://example.com/auth/google/callback"
+	RedirectPath string
 
 	// AllowedHostedDomains is a list of Google Workspace domains allowed to authenticate
 	// Example: ["example.com", "company.org"]
@@ -98,8 +104,11 @@ func New(config *Config) (*Middleware, error) {
 	if config.ClientSecret == "" {
 		return nil, errors.New("ClientSecret is required")
 	}
-	if config.RedirectURL == "" {
-		return nil, errors.New("RedirectURL is required")
+	if config.RedirectURL == "" && config.RedirectPath == "" {
+		return nil, errors.New("either RedirectURL or RedirectPath is required")
+	}
+	if config.RedirectURL != "" && config.RedirectPath != "" {
+		return nil, errors.New("cannot specify both RedirectURL and RedirectPath")
 	}
 
 	// Set defaults
@@ -134,10 +143,16 @@ func New(config *Config) (*Middleware, error) {
 	}
 
 	// Configure OAuth2
+	// When using RedirectPath, we'll set a placeholder here and update it dynamically
+	redirectURL := config.RedirectURL
+	if redirectURL == "" {
+		redirectURL = "http://placeholder" // Will be overridden dynamically
+	}
+
 	oauth2Config := &oauth2.Config{
 		ClientID:     config.ClientID,
 		ClientSecret: config.ClientSecret,
-		RedirectURL:  config.RedirectURL,
+		RedirectURL:  redirectURL,
 		Endpoint:     google.Endpoint,
 		Scopes:       config.Scopes,
 	}
@@ -204,6 +219,11 @@ func (m *Middleware) handleLogin(c echo.Context) error {
 	// Store state in session cookie
 	m.setSessionCookie(c, stateKey, state, 600) // 10 minutes
 
+	// Update redirect URL dynamically if using RedirectPath
+	if m.config.RedirectPath != "" {
+		m.oauth2Config.RedirectURL = m.getRedirectURL(c)
+	}
+
 	// Build authorization URL with hd parameter if hosted domains are specified
 	authURL := m.oauth2Config.AuthCodeURL(state, oauth2.AccessTypeOffline)
 
@@ -217,6 +237,11 @@ func (m *Middleware) handleLogin(c echo.Context) error {
 
 // handleCallback processes the OAuth2 callback
 func (m *Middleware) handleCallback(c echo.Context) error {
+	// Update redirect URL dynamically if using RedirectPath
+	if m.config.RedirectPath != "" {
+		m.oauth2Config.RedirectURL = m.getRedirectURL(c)
+	}
+
 	// Verify state
 	stateCookie, err := c.Cookie(stateKey)
 	if err != nil {
@@ -358,4 +383,24 @@ func generateRandomState() (string, error) {
 		return "", err
 	}
 	return base64.URLEncoding.EncodeToString(b), nil
+}
+
+// getRedirectURL generates the redirect URL from echo.Context when RedirectPath is set
+// Otherwise returns the static RedirectURL
+func (m *Middleware) getRedirectURL(c echo.Context) string {
+	if m.config.RedirectPath != "" {
+		scheme := "https"
+		if c.Request().TLS == nil {
+			scheme = "http"
+		}
+
+		// Use X-Forwarded-Proto header if available (for proxies/load balancers)
+		if proto := c.Request().Header.Get("X-Forwarded-Proto"); proto != "" {
+			scheme = proto
+		}
+
+		host := c.Request().Host
+		return fmt.Sprintf("%s://%s%s", scheme, host, m.config.RedirectPath)
+	}
+	return m.config.RedirectURL
 }

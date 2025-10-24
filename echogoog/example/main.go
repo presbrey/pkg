@@ -21,7 +21,13 @@ func main() {
 	authMiddleware, err := googleopenid.New(&googleopenid.Config{
 		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-		RedirectURL:  "http://localhost:8080/auth/google/callback",
+
+		// Option 1: Use static RedirectURL
+		// RedirectURL:  "http://localhost:8080/auth/google/callback",
+
+		// Option 2: Use dynamic RedirectPath (generates full URL from request context)
+		// This allows the app to work across different domains/schemes automatically
+		RedirectPath: "/auth/google/callback",
 
 		// Only allow users from these Google Workspace domains
 		AllowedHostedDomains: []string{

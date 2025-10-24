@@ -31,7 +31,8 @@ google-openid-middleware/
 |--------|------|---------|-------------|
 | `ClientID` | string | *required* | Google OAuth2 client ID |
 | `ClientSecret` | string | *required* | Google OAuth2 client secret |
-| `RedirectURL` | string | *required* | OAuth2 callback URL |
+| `RedirectURL` | string | *required*\* | OAuth2 callback URL (static) |
+| `RedirectPath` | string | *required*\* | OAuth2 callback path (dynamic) - generates full URL from request context |
 | `AllowedHostedDomains` | []string | `nil` | List of allowed Google Workspace domains |
 | `Scopes` | []string | `["openid", "email", "profile"]` | OAuth2 scopes to request |
 | `SessionCookieName` | string | `"google_openid_session"` | Session cookie name |
@@ -44,6 +45,42 @@ google-openid-middleware/
 | `LogoutPath` | string | `"/auth/google/logout"` | Logout path |
 | `SuccessRedirect` | string | `"/"` | Redirect URL after successful auth |
 | `UnauthorizedHandler` | echo.HandlerFunc | `nil` | Custom unauthorized handler |
+
+\* Either `RedirectURL` or `RedirectPath` is required, but not both.
+
+---
+
+## 🔄 Dynamic vs Static Redirect URLs
+
+The middleware supports two ways to configure the OAuth2 callback URL:
+
+### Static RedirectURL
+Use a fixed, absolute URL that doesn't change:
+```go
+RedirectURL: "https://example.com/auth/google/callback"
+```
+Best for single-domain applications with a known URL.
+
+### Dynamic RedirectPath
+Use a relative path that generates the full URL from the incoming request:
+```go
+RedirectPath: "/auth/google/callback"
+```
+The middleware automatically detects:
+- **Scheme**: `http` or `https` (from TLS or X-Forwarded-Proto header)
+- **Host**: From the request's Host header
+- **Path**: Your configured path
+
+**Benefits:**
+- Works seamlessly with multiple domains (e.g., production, staging, development)
+- Automatically adapts to proxy/load balancer schemes (via X-Forwarded-Proto)
+- No hardcoded URLs - perfect for containerized/cloud deployments
+- Simplifies configuration across different environments
+
+**Example:** When using `RedirectPath: "/auth/google/callback"`:
+- Request to `http://localhost:8080` → Callback: `http://localhost:8080/auth/google/callback`
+- Request to `https://example.com` → Callback: `https://example.com/auth/google/callback`
+- Behind proxy with X-Forwarded-Proto → Uses forwarded scheme automatically
 
 ---
 
