@@ -1,16 +1,61 @@
 # Google OpenID Echo Middleware - Complete Implementation
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/presbrey/pkg/echogoog.svg)](https://pkg.go.dev/github.com/presbrey/pkg/echogoog)
+
 A comprehensive Echo middleware for Google OpenID Connect authentication with Google Workspace hosted domain restrictions.
+
+**Repository:** [github.com/presbrey/pkg/echogoog](https://github.com/presbrey/pkg/tree/main/echogoog)
+
+## 🚀 Installation
+
+```bash
+go get github.com/presbrey/pkg/echogoog
+```
+
+## 📦 Quick Start
+
+```go
+import (
+    "github.com/labstack/echo/v4"
+    "github.com/presbrey/pkg/echogoog"
+)
+
+func main() {
+    e := echo.New()
+
+    // Configure Google OpenID middleware
+    mw := echogoog.NewMiddleware(&echogoog.Config{
+        ClientID:             "your-client-id.apps.googleusercontent.com",
+        ClientSecret:         "your-client-secret",
+        RedirectPath:         "/auth/google/callback",
+        AllowedHostedDomains: []string{"example.com"},
+    })
+
+    // Register authentication routes
+    mw.RegisterRoutes(e)
+
+    // Protect routes requiring authentication
+    e.GET("/dashboard", dashboardHandler, mw.RequireAuth())
+
+    e.Start(":8080")
+}
+```
 
 ## 📦 Package Structure
 
 ```
-google-openid-middleware/
+github.com/presbrey/pkg/echogoog/
 ├── middleware.go      # Main implementation
 ├── go.mod            # Module dependencies
+├── go.sum            # Dependency checksums
+├── README.md         # This file
 └── example/
-    └── main.go       # Usage example
+    └── main.go       # Complete usage example
 ```
+
+**View Source:**
+- [middleware.go](https://github.com/presbrey/pkg/blob/main/echogoog/middleware.go)
+- [example/main.go](https://github.com/presbrey/pkg/blob/main/echogoog/example/main.go)
 
 ---
 
