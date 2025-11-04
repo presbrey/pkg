@@ -443,6 +443,18 @@ func (m *Middleware) getOAuth2Config(c echo.Context) (*oauth2.Config, error) {
 
 // getScheme determines the scheme (http/https) from the request
 func (m *Middleware) getScheme(c echo.Context) string {
+	// Check for Cloudflare TLS indicator (Cf-Visitor header)
+	if cfVisitor := c.Request().Header.Get("Cf-Visitor"); cfVisitor != "" {
+		if strings.Contains(cfVisitor, "\"scheme\":\"https\"") {
+			return "https"
+		}
+	}
+
+	// Check for Fly.io TLS indicator (Fly-Forwarded-Proto header)
+	if flyProto := c.Request().Header.Get("Fly-Forwarded-Proto"); flyProto == "https" {
+		return "https"
+	}
+
 	// Only trust forwarded headers if explicitly configured
 	if m.config.TrustForwardedHeaders {
 		// Try RFC7239 Forwarded header first
