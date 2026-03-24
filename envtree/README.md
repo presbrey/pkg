@@ -14,7 +14,7 @@ A flexible Go library for automatically loading environment variables from `.env
 ## Installation
 
 ```bash
-go get github.com/presbrey/envtree
+go get github.com/presbrey/pkg/envtree
 ```
 
 ## Quick Start
@@ -25,7 +25,7 @@ go get github.com/presbrey/envtree
 package main
 
 import (
-    "github.com/presbrey/envtree"
+    "github.com/presbrey/pkg/envtree"
 )
 
 func init() {
@@ -44,7 +44,7 @@ package main
 
 import (
     "log"
-    "github.com/presbrey/envtree"
+    "github.com/presbrey/pkg/envtree"
 )
 
 func main() {
@@ -63,7 +63,7 @@ package main
 
 import (
     "log"
-    "github.com/presbrey/envtree"
+    "github.com/presbrey/pkg/envtree"
 )
 
 func main() {
@@ -86,7 +86,7 @@ func main() {
 package main
 
 import (
-    "github.com/presbrey/envtree"
+    "github.com/presbrey/pkg/envtree"
 )
 
 func main() {
