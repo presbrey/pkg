@@ -10,7 +10,7 @@ The simplest way to use envtree is with AutoLoad in your init function:
 
 	package main
 
-	import "github.com/presbrey/envtree"
+	import "github.com/presbrey/pkg/envtree"
 
 	func init() {
 		envtree.AutoLoad()
