@@ -1,6 +1,6 @@
 # Go Utility Packages
 
-A collection of useful Go packages: hooks, syncmap, syncthing, echofly, echovalidator, slugs, and git-http-cache.
+A collection of useful Go packages: hooks, syncmap, syncthing, echofly, echovalidator, envtree, slugs, and git-http-cache.
 
 ## Development
 
@@ -31,6 +31,10 @@ Provides middleware for the Echo web framework to make sessions sticky on Fly.io
 ### [echovalidator](./echovalidator)
 
 Provides a simple integration of the `go-playground/validator/v10` library with the Echo (`v4`) web framework. Supports instance-based and singleton validators, with automatic JSON tag usage for the former.
+
+### [envtree](./envtree)
+
+Loads environment variables from `.env` files in the current working directory and all parent directories. Existing environment variables are preserved, and values from closer files take precedence over those from parent directories. Supports custom filenames, discovering file paths without loading them, and convenience functions such as `LoadDefault()`, `MustLoadDefault()`, and `AutoLoad()`.
 
 ### [hooks](./hooks)
 
