@@ -1,6 +1,6 @@
 # Go Utility Packages
 
-A collection of useful Go packages: hooks, syncmap, syncthing, echofly, echovalidator, envtree, slugs, and git-http-cache.
+A collection of Go utilities for web applications, configuration, encoding, networking, caching, and service integrations.
 
 ## Development
 
@@ -20,6 +20,10 @@ PostgreSQL and MySQL integration tests are opt-in. Start disposable databases wi
 
 ## Packages
 
+### [base92](./base92)
+
+Provides `Encode()` and `Decode()` functions for converting byte slices to and from text using the package's encoding scheme. Includes a [command-line utility](./base92/cli) with `encode` and `decode` commands that read files or standard input and write to standard output.
+
 ### [cdns](./cdns)
 
 Provides utilities for interacting with various Content Delivery Network (CDN) providers (e.g., Cloudflare, Fly.io).
@@ -35,6 +39,10 @@ Provides a simple integration of the `go-playground/validator/v10` library with 
 ### [envtree](./envtree)
 
 Loads environment variables from `.env` files in the current working directory and all parent directories. Existing environment variables are preserved, and values from closer files take precedence over those from parent directories. Supports custom filenames, discovering file paths without loading them, and convenience functions such as `LoadDefault()`, `MustLoadDefault()`, and `AutoLoad()`.
+
+### [fly](./fly)
+
+Provides Fly.io utilities for listing machines, querying their status, and retrieving or streaming logs through `flyctl`. Includes the [flysu command](./fly/flysu) for listing machines and viewing logs across applications, with region filtering.
 
 ### [hooks](./hooks)
 
@@ -53,6 +61,10 @@ See the [example](/hooks/example/main.go) for usage.
 ### [slugs](./slugs)
 
 A Go package for generating URL-safe slugs with a fluent API pattern.
+
+### [sshforward](./sshforward)
+
+Forwards a local TCP port to a port on the SSH server's localhost. Supports password authentication and private keys supplied inline or from a file, with optional automatic allocation of the local port.
 
 ### [syncmap](./syncmap)
 
@@ -83,6 +95,10 @@ A Go package for generating URL-safe slugs with a fluent API pattern.
 - Proper type conversion for numeric types and nested maps
 - Error handling and update notifications
 - TLS configuration options
+
+### [wait](./wait)
+
+Provides utilities for waiting on custom conditions, network services, HTTP endpoints, files, and processes. Supports configurable retry limits, timeouts, context cancellation, and backoff strategies, with `All()` and `Any()` helpers for combining conditions.
 
 ### [git-http-cache](./git-http-cache)
 
