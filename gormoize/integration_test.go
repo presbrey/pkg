@@ -88,10 +88,7 @@ func TestPostgresIntegration(t *testing.T) {
 		WithConfig(&gorm.Config{}).
 		Get()
 
-	if err != nil {
-		t.Skipf("Skipping PostgreSQL test due to connection error: %v", err)
-		return
-	}
+	require.NoError(t, err, "connect to PostgreSQL")
 
 	require.NotNil(t, db)
 
@@ -146,10 +143,7 @@ func TestMySQLIntegration(t *testing.T) {
 		WithConfig(&gorm.Config{}).
 		Get()
 
-	if err != nil {
-		t.Skipf("Skipping MySQL test due to connection error: %v", err)
-		return
-	}
+	require.NoError(t, err, "connect to MySQL")
 
 	require.NotNil(t, db)
 

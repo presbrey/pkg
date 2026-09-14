@@ -28,7 +28,7 @@ There is no main application to run in this project, as it is a collection of li
 To run the tests for all packages, you can use the following command:
 
 ```bash
-go test ./...
+make check
 ```
 
 # Development Conventions
@@ -36,4 +36,4 @@ go test ./...
 *   The project follows standard Go coding conventions.
 *   Each package is located in its own subdirectory.
 *   Each package has its own set of tests.
-*   The project uses Go modules for dependency management. The `go.mod` file lists the project's dependencies.
+*   The project uses Go modules for dependency management. The root module and nested `base92/cli` and `git-http-cache` modules require Go 1.27.1 or later. Each `go.mod` file lists the project's dependencies.

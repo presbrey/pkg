@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.27.1-alpine3.24 AS builder
 
 # Install git for the build process
 RUN apk add --no-cache git
@@ -17,16 +17,16 @@ RUN go mod download
 COPY *.go ./
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o git-http-cache .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o git-http-cache .
 
-# Run tests during build (optional)
+# Run tests during build
 RUN go test -v
 
 # Final stage
-FROM alpine:latest
+FROM alpine:3.24.1
 
 # Install git and ca-certificates for HTTPS git operations
-RUN apk --no-cache add git ca-certificates tzdata
+RUN apk --no-cache add git openssh-client ca-certificates tzdata
 
 # Create non-root user
 RUN addgroup -g 1000 -S appuser && \
@@ -47,9 +47,9 @@ USER appuser
 # Expose default port
 EXPOSE 5000
 
-# Health check
+# Check the listener without requiring a bearer token
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:5000/ || exit 1
+    CMD nc -z 127.0.0.1 "${PORT:-5000}" || exit 1
 
 # Default entrypoint
 ENTRYPOINT ["./git-http-cache"]
@@ -62,14 +62,12 @@ CMD ["-repo", "https://github.com/golang/example.git", "-dir", "/app/repo"]
 # 1. Personal Access Token (PAT) for HTTPS repositories:
 #    docker run -e GIT_TOKEN=your_token_here git-http-cache -repo https://github.com/user/private-repo.git
 #    or
-#    docker run git-http-cache -repo https://github.com/user/private-repo.git -git-token your_token_here
+#    docker run git-http-cache -repo https://github.com/user/private-repo.git -token your_token_here
 #
 # 2. SSH Key for SSH repositories:
 #    docker run -e GIT_SSH_KEY=/path/to/ssh/key -v /host/path/to/ssh/key:/path/to/ssh/key:ro git-http-cache -repo git@github.com:user/private-repo.git
 #    or
-#    docker run -v /host/path/to/ssh/key:/path/to/ssh/key:ro git-http-cache -repo git@github.com:user/private-repo.git -ssh-key-path /path/to/ssh/key
+#    docker run -v /host/path/to/ssh/key:/path/to/ssh/key:ro git-http-cache -repo git@github.com:user/private-repo.git -ssh-key /path/to/ssh/key
 #
 # 3. Bearer token authentication for API access:
-#    docker run -e BEARER_KEYS=key1,key2,key3 git-http-cache
-#    or
-#    docker run git-http-cache -bearer-keys key1,key2,key3
+#    docker run git-http-cache -keys key1,key2,key3

@@ -1,4 +1,4 @@
-.PHONY: all build install clean test
+.PHONY: all build install uninstall clean test
 
 # Go executable
 GO ?= go
@@ -29,13 +29,15 @@ uninstall:
 
 clean:
 	@echo "Cleaning up..."
-	@rm -rf $(BUILD_DIR)
+	@rm -f $(BUILD_DIR)/$(BINARY_NAME)
 	@echo "Clean complete."
 
-test:
-	@echo "Testing encode/decode functionality..."
-	@echo "Hello, World!" > /tmp/test_base92.txt
-	@$(BUILD_DIR)/$(BINARY_NAME) encode /tmp/test_base92.txt > /tmp/test_base92_encoded.txt
-	@$(BUILD_DIR)/$(BINARY_NAME) decode /tmp/test_base92_encoded.txt > /tmp/test_base92_decoded.txt
-	@diff /tmp/test_base92.txt /tmp/test_base92_decoded.txt && echo "Test passed!" || echo "Test failed!"
-	@rm /tmp/test_base92.txt /tmp/test_base92_encoded.txt /tmp/test_base92_decoded.txt
+test: build
+	@set -eu; \
+	work_dir=$$(mktemp -d); \
+	trap 'rm -rf "$$work_dir"' EXIT; \
+	printf 'Hello, World!\n' > "$$work_dir/input"; \
+	$(BUILD_DIR)/$(BINARY_NAME) encode "$$work_dir/input" > "$$work_dir/encoded"; \
+	$(BUILD_DIR)/$(BINARY_NAME) decode "$$work_dir/encoded" > "$$work_dir/decoded"; \
+	diff "$$work_dir/input" "$$work_dir/decoded"; \
+	echo "Test passed!"

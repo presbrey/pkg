@@ -17,7 +17,7 @@ help:
 
 ## build: Build the binary
 build:
-	$(GO) build $(GOFLAGS) -o $(BINARY_NAME) main.go
+	$(GO) build $(GOFLAGS) -o $(BINARY_NAME) .
 	@echo "Binary built: $(BINARY_NAME)"
 
 ## run: Run the server (requires -repo flag)
@@ -49,7 +49,7 @@ coverage:
 
 ## lint: Run golint (requires golangci-lint)
 lint:
-	@which golangci-lint > /dev/null || (echo "golangci-lint not installed. Run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest" && exit 1)
+	@which golangci-lint > /dev/null || (echo "golangci-lint not installed. Run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest" && exit 1)
 	golangci-lint run
 
 ## fmt: Format code
@@ -102,14 +102,14 @@ docker-stop:
 docker-logs:
 	docker logs -f $(BINARY_NAME)
 
-## docker-compose-up: Start with docker-compose
+## docker-compose-up: Start with docker compose
 docker-compose-up:
-	docker-compose up -d
-	@echo "Services started with docker-compose"
+	docker compose up -d
+	@echo "Services started with docker compose"
 
-## docker-compose-down: Stop docker-compose services
+## docker-compose-down: Stop docker compose services
 docker-compose-down:
-	docker-compose down
+	docker compose down
 	@echo "Services stopped"
 
 ## install: Install the binary to GOPATH/bin
@@ -149,7 +149,7 @@ example-pat: build
 	fi
 	PORT=$(PORT) ./$(BINARY_NAME) \
 		-repo https://github.com/user/private-repo.git \
-		-git-token $(git_token) \
+		-token $(git_token) \
 		-dir ./pat-repo \
 		-interval 1m
 	@echo "Server running with PAT authentication"
@@ -163,7 +163,7 @@ example-ssh: build
 	fi
 	PORT=$(PORT) ./$(BINARY_NAME) \
 		-repo git@github.com:user/private-repo.git \
-		-ssh-key-path $(ssh_key_path) \
+		-ssh-key $(ssh_key_path) \
 		-dir ./ssh-repo \
 		-interval 1m
 	@echo "Server running with SSH key authentication"

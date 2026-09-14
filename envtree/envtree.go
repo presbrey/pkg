@@ -31,7 +31,7 @@ type Loader struct {
 
 // New creates a new Loader with the given configuration
 func New(config *Config) *Loader {
-	if config == nil {
+	if config == nil || config.EnvFileName == "" {
 		config = DefaultConfig()
 	}
 	return &Loader{config: config}
@@ -78,7 +78,7 @@ func (l *Loader) getEnvFilePaths() ([]string, error) {
 		envPath := filepath.Join(cwd, l.config.EnvFileName)
 
 		// Check if the file exists
-		if _, err := os.Stat(envPath); err == nil {
+		if info, err := os.Stat(envPath); err == nil && !info.IsDir() {
 			// If it exists, add it to the list
 			envFiles = append(envFiles, envPath)
 		}

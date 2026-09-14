@@ -15,11 +15,11 @@ A Go HTTP server that clones a Git repository, serves its contents via HTTP with
 
 ```bash
 # Clone this project
-git clone <this-project-url>
-cd git-http-cache
+git clone https://github.com/presbrey/pkg.git
+cd pkg/git-http-cache
 
 # Build the server
-go build -o git-http-cache main.go
+go build -o git-http-cache .
 
 # Run tests
 go test -v
@@ -46,6 +46,8 @@ go test -v
 ### Command Line Flags
 
 - `-repo` (required): Git repository URL to clone and serve
+- `-token`: Personal access token for HTTPS Git authentication (optional)
+- `-ssh-key`: Path to an SSH private key (optional)
 - `-keys`: Comma-separated list of bearer tokens for authentication (optional)
 - `-dir`: Directory to clone the repository into (default: `./repo`)
 - `-interval`: Interval for pulling updates from git (default: `1m`)
@@ -53,6 +55,8 @@ go test -v
 ### Environment Variables
 
 - `PORT`: HTTP server port (default: `5000`)
+- `GIT_TOKEN`: Default for `-token`
+- `GIT_SSH_KEY`: Default for `-ssh-key`
 
 ## Authentication
 
@@ -104,22 +108,7 @@ PORT=8080 ./git-http-cache \
 
 ## Docker Usage
 
-Create a `Dockerfile`:
-
-```dockerfile
-FROM golang:1.21-alpine AS builder
-RUN apk add --no-cache git
-WORKDIR /app
-COPY . .
-RUN go build -o git-http-cache main.go
-
-FROM alpine:latest
-RUN apk add --no-cache git
-WORKDIR /app
-COPY --from=builder /app/git-http-cache .
-EXPOSE 5000
-ENTRYPOINT ["./git-http-cache"]
-```
+The included `Dockerfile` builds with Go 1.27.1 and runs on Alpine 3.24 as a non-root user, with Git and SSH support. Its health check probes the configured TCP port, including when bearer authentication is enabled.
 
 Build and run:
 

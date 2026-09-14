@@ -24,6 +24,9 @@ func TestNew(t *testing.T) {
 	if loader.config == nil {
 		t.Fatal("Expected loader to have default config")
 	}
+	if New(&Config{}).config.EnvFileName != ".env" {
+		t.Error("Expected an empty config to use the default filename")
+	}
 
 	customConfig := &Config{
 		EnvFileName: ".env.test",
@@ -32,6 +35,26 @@ func TestNew(t *testing.T) {
 	loader = New(customConfig)
 	if loader.config.EnvFileName != ".env.test" {
 		t.Error("Expected custom config to be used")
+	}
+}
+
+func TestIgnoreDirectoryWithEnvFileName(t *testing.T) {
+	dir := t.TempDir()
+	const filename = ".envtree-directory-test"
+	if err := os.Mkdir(filepath.Join(dir, filename), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	loader := New(&Config{EnvFileName: filename})
+	paths, err := loader.GetEnvFilePaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 0 {
+		t.Fatalf("Expected no env files, got %v", paths)
+	}
+	if err := loader.Load(); err != nil {
+		t.Fatalf("Expected directories to be ignored: %v", err)
 	}
 }
 

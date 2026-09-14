@@ -143,7 +143,7 @@ The package can be configured via environment variables:
 
 ## Requirements
 
-- Go 1.15 or higher
+- Go 1.27.1 or higher
 - [flyctl](https://fly.io/docs/hands-on/install-flyctl/) installed and configured
 - Valid Fly.io authentication
 

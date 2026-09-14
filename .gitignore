@@ -3,3 +3,8 @@
 # Compiled binaries in example directories
 **/example/example
 **/example/*.exe
+
+# Standalone command builds
+/base92/cli/base92
+/base92/cli/cli
+/git-http-cache/git-http-cache

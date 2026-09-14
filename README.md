@@ -2,6 +2,22 @@
 
 A collection of useful Go packages: hooks, syncmap, syncthing, echofly, echovalidator, slugs, and git-http-cache.
 
+## Development
+
+All three modules require [Go 1.27.1](https://go.dev/dl/) or later. The root module's SQLite tests also require a C compiler (CGO), and `git-http-cache` requires Git at runtime.
+
+```bash
+make check  # Build, vet, and race-test all three modules
+make vuln   # Scan all three modules for known vulnerabilities
+make tidy   # Refresh module manifests and checksums
+```
+
+The nested modules `base92/cli` and `git-http-cache` are independent: running `go test ./...` at the repository root does not test them. CI checks every module and builds the container. Dependabot checks Go dependencies, GitHub Actions, and Docker base images weekly.
+
+Echo integrations continue to use the v4 API. YAML configuration uses the [YAML organization's maintained v3 package](https://github.com/yaml/go-yaml).
+
+PostgreSQL and MySQL integration tests are opt-in. Start disposable databases with `make -C gormoize setup-local-dbs`, then run `make -C gormoize test-integration`. Stop them with `make -C gormoize teardown-local-dbs`. Override `GORMMEMO_PG_DSN` and `GORMMEMO_MYSQL_DSN` when using other local test databases.
+
 ## Packages
 
 ### [cdns](./cdns)
@@ -89,13 +105,13 @@ For HTTPS repository URLs, you can use a Personal Access Token (PAT) for authent
 
 **Command-line flag:**
 ```bash
-./git-http-cache -repo-url https://github.com/user/private-repo.git -git-token your_token_here
+./git-http-cache -repo https://github.com/user/private-repo.git -token your_token_here
 ```
 
 **Environment variable:**
 ```bash
 export GIT_TOKEN=your_token_here
-./git-http-cache -repo-url https://github.com/user/private-repo.git
+./git-http-cache -repo https://github.com/user/private-repo.git
 ```
 
 When using PAT authentication, the server modifies the repository URL to include the token:
@@ -109,13 +125,13 @@ For SSH repository URLs (e.g., `git@github.com:user/private-repo.git`), you can 
 
 **Command-line flag:**
 ```bash
-./git-http-cache -repo-url git@github.com:user/private-repo.git -ssh-key-path /path/to/ssh/key
+./git-http-cache -repo git@github.com:user/private-repo.git -ssh-key /path/to/ssh/key
 ```
 
 **Environment variable:**
 ```bash
 export GIT_SSH_KEY=/path/to/ssh/key
-./git-http-cache -repo-url git@github.com:user/private-repo.git
+./git-http-cache -repo git@github.com:user/private-repo.git
 ```
 
 When using SSH key authentication, the server sets the `GIT_SSH_COMMAND` environment variable to specify the SSH key:
@@ -127,29 +143,29 @@ GIT_SSH_COMMAND="ssh -i /path/to/ssh/key -o StrictHostKeyChecking=no"
 
 **Basic usage with a public repository:**
 ```bash
-./git-http-cache -repo-url https://github.com/user/public-repo.git -clone-dir /tmp/repo
+./git-http-cache -repo https://github.com/user/public-repo.git -dir /tmp/repo
 ```
 
 **Using a private repository with PAT:**
 ```bash
-./git-http-cache -repo-url https://github.com/user/private-repo.git -git-token your_token_here -clone-dir /tmp/repo
+./git-http-cache -repo https://github.com/user/private-repo.git -token your_token_here -dir /tmp/repo
 ```
 
 **Using a private repository with SSH key:**
 ```bash
-./git-http-cache -repo-url git@github.com:user/private-repo.git -ssh-key-path ~/.ssh/id_rsa -clone-dir /tmp/repo
+./git-http-cache -repo git@github.com:user/private-repo.git -ssh-key ~/.ssh/id_rsa -dir /tmp/repo
 ```
 
 **Using environment variables:**
 ```bash
 export GIT_TOKEN=your_token_here
 export GIT_SSH_KEY=~/.ssh/id_rsa
-./git-http-cache -repo-url https://github.com/user/private-repo.git -clone-dir /tmp/repo
+./git-http-cache -repo https://github.com/user/private-repo.git -dir /tmp/repo
 ```
 
 **With API authentication:**
 ```bash
-./git-http-cache -repo-url https://github.com/user/repo.git -bearer-keys key1,key2,key3
+./git-http-cache -repo https://github.com/user/repo.git -keys key1,key2,key3
 ```
 
 ## Comparison
@@ -225,14 +241,12 @@ func main() {
 - Use **syncmap** when:
   - You need a simpler API that extends the familiar `sync.Map`
   - You don't need compile-time type safety
-  - You're working with Go versions prior to Go 1.18 (which introduced generics)
 
 - Use **syncthing** when:
   - You prefer a fluent, chainable API
   - You want compile-time type safety with generics
   - You need detailed change tracking (added/changed/deleted keys)
   - You're working with complex nested data structures
-  - You're using Go 1.18 or later
 
 ## License
 
