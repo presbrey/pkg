@@ -23,7 +23,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o git-http-cache .
 RUN go test -v
 
 # Final stage
-FROM alpine:3.24.1
+FROM alpine:3.24.2
 
 # Install git and ca-certificates for HTTPS git operations
 RUN apk --no-cache add git openssh-client ca-certificates tzdata
